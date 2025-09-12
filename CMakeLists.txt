@@ -14,9 +14,14 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
 set(PROJECT_SOURCES
         src/main.cpp
-        src/MainWindow.cc
-        src/MainWindow.h
-        src/MainWindow.ui
+        src/resources/Icon.rc
+        src/resources/Resources.qrc
+        src/utils/IconUtils.h
+        src/windows/main/MainWindow.cc
+        src/windows/main/MainWindow.h
+        src/windows/main/MainWindow.ui
+        src/EasyDownloadManager.cc
+        src/EasyDownloadManager.h
 )
 
 if (${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -42,6 +47,12 @@ else ()
     endif ()
 endif ()
 
+target_include_directories(EasyDownloadManager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+target_compile_definitions(EasyDownloadManager PRIVATE
+        $<$<CONFIG:Debug>:EDM_DEBUG>
+)
+
 target_link_libraries(EasyDownloadManager PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -55,7 +66,7 @@ set_target_properties(EasyDownloadManager PROPERTIES
         MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
         MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
         MACOSX_BUNDLE TRUE
-        WIN32_EXECUTABLE TRUE
+        WIN32_EXECUTABLE FALSE # fix qDebug() not working on Windows
 )
 
 include(GNUInstallDirs)

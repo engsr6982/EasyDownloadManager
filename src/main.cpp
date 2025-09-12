@@ -1,11 +1,14 @@
-#include "MainWindow.h"
+#include "EasyDownloadManager.h"
 
 #include <QApplication>
+#include <qicon.h>
 
-int main(int argc, char *argv[])
-{
-    QApplication a(argc, argv);
-    MainWindow w;
-    w.show();
-    return a.exec();
+int main(int argc, char* argv[]) {
+    QApplication::setStyle("Fusion");
+    QApplication app(argc, argv);
+
+    edm::EasyDownloadManager manager{};
+    manager.showMainWindow();
+
+    return app.exec();
 }
