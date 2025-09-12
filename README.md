@@ -1,5 +1,12 @@
 # Qt6 & C++20 的多线程下载器 EasyDownloadManager
 
+## 技术栈
+
+1. Qt6 作为核心 UI 框架
+2. C++20 作为核心编程语言
+3. LibCurl 作为核心网络库
+4. SQLite3 作为核心数据库
+
 ## 特性：
 
 ### 1. URL Scheme
@@ -11,14 +18,19 @@
 - `edm://add`
 
 ```ts
-declare interface EDMCreateDownloadTask {
-    url: string; // http(s) 协议
-    threads?: number; // 本次任务使用的线程数量
-    proxy?: boolean; // 本次任务是否使用代理
-    limit?: number; // 本次任务带宽限制 (kb/s)
-    webTitle?: string; // 页面标题
-    webSiteUrl?: string; // 页面网址
+declare interface EdmCreateDownloadTask {
+    url: string; // 下载链接
+    method: "GET" | "POST"; // 请求方法
+    fileName: string; // 下载文件名
+    mimeType?: string; // MIME 类型
+    userAgent?: string; // 用户代理
+    pageUrl?: string; // 来源页面 URL (发起下载请求时的页面）
+    pageTitle?: string; // 来源页面标题
     browser?: string; // 来源浏览器
+    // headers
+    cookie?: string; // 本次请求附加的 cookie
+    origin?: string; // 源站点 (根）
+    referer?: string; // 防盗链
 }
 ```
 
