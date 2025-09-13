@@ -4,20 +4,27 @@
 namespace edm {
 
 class MainWindow;
+class Dispatcher;
 
 class EasyDownloadManager {
-public:
-    EasyDownloadManager();
-    ~EasyDownloadManager();
+    static EasyDownloadManager* instance_;
+    explicit EasyDownloadManager();
 
+public:
+    ~EasyDownloadManager()                                 ;
     EasyDownloadManager(EasyDownloadManager const&)            = delete;
     EasyDownloadManager(EasyDownloadManager&&)                 = delete;
     EasyDownloadManager& operator=(EasyDownloadManager const&) = delete;
     EasyDownloadManager& operator=(EasyDownloadManager&&)      = delete;
 
-    void showMainWindow() const;
+    static EasyDownloadManager& getOrNewInstance();
+    static void                 tryDestroyInstance();
+
+    MainWindow* getMainWindow() const;
+    Dispatcher* getDispatcher() const;
 
 private:
+    std::unique_ptr<Dispatcher> dispatcher_{nullptr};
     std::unique_ptr<MainWindow> mainWindow_{nullptr};
 };
 

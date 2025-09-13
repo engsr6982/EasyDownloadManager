@@ -23,7 +23,6 @@ public:
     void hideFileTree() const;
     void showFileTree() const;
 
-
 private:
     void _addDebugDatas() const;
     void _setupLayout();

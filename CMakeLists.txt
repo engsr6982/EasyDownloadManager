@@ -22,6 +22,14 @@ set(PROJECT_SOURCES
         src/windows/main/MainWindow.ui
         src/EasyDownloadManager.cc
         src/EasyDownloadManager.h
+        src/windows/new_task/NewTaskDialog.h
+        src/windows/new_task/NewTaskDialog.cc
+        src/windows/new_task/NewTaskDialog.ui
+        src/Dispatcher.cc
+        src/Dispatcher.h
+        src/event/EventBus.h
+        src/event/SignalHandler.cc
+        src/event/SignalHandler.h
 )
 
 if (${QT_VERSION_MAJOR} GREATER_EQUAL 6)

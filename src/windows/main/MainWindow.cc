@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "../../event/EventBus.h"
 #include "./ui_MainWindow.h"
 #include "utils/IconUtils.h"
 
@@ -55,18 +56,44 @@ void MainWindow::_setupLayout() {
 void MainWindow::_buildToolBar() const {
     auto toolBar = ui_->mainToolBar_;
     toolBar->setMovable(false); // 工具栏不可移动
-    toolBar->addAction("新建");
-    toolBar->addAction("恢复");
-    toolBar->addAction("停止");
-    toolBar->addAction("删除");
-    toolBar->addAction("清除所有");
+    auto newTask    = toolBar->addAction("新建");
+    auto resumeTask = toolBar->addAction("恢复");
+    auto stopTask   = toolBar->addAction("停止");
+    auto deleteTask = toolBar->addAction("删除");
+    auto clearAll   = toolBar->addAction("清除所有");
 
     // 添加伸缩占位，把后面的动作推到右边 (右对齐)
     auto spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(spacer);
 
-    toolBar->addAction("设置");
+    auto settings = toolBar->addAction("设置");
+
+    // 连接信号
+    connect(newTask, &QAction::triggered, this, []() {
+        qDebug() << "[MainWindow] onNewTask";
+        emit EventBus::instance() -> onRequestCreateTask(nullptr);
+    });
+    connect(resumeTask, &QAction::triggered, this, []() {
+        qDebug() << "[MainWindow] onResumeTask";
+        // TODO: impl
+    });
+    connect(stopTask, &QAction::triggered, this, []() {
+        qDebug() << "[MainWindow] onStopTask";
+        // TODO: impl
+    });
+    connect(deleteTask, &QAction::triggered, this, []() {
+        qDebug() << "[MainWindow] onDeleteTask";
+        // TODO: impl
+    });
+    connect(clearAll, &QAction::triggered, this, []() {
+        qDebug() << "[MainWindow] onClearAll";
+        // TODO: impl
+    });
+    connect(settings, &QAction::triggered, this, []() {
+        qDebug() << "[MainWindow] onSettings";
+        // TODO: impl
+    });
 }
 void MainWindow::_buildFileTree() {
     auto tree = ui_->fileTree_;
