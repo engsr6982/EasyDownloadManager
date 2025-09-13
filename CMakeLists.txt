@@ -17,19 +17,22 @@ set(PROJECT_SOURCES
         src/resources/Icon.rc
         src/resources/Resources.qrc
         src/utils/IconUtils.h
-        src/windows/main/MainWindow.cc
-        src/windows/main/MainWindow.h
-        src/windows/main/MainWindow.ui
+        src/ui/main/MainWindow.cc
+        src/ui/main/MainWindow.h
+        src/ui/main/MainWindow.ui
         src/EasyDownloadManager.cc
         src/EasyDownloadManager.h
-        src/windows/new_task/NewTaskDialog.h
-        src/windows/new_task/NewTaskDialog.cc
-        src/windows/new_task/NewTaskDialog.ui
+        src/ui/new_task/NewTaskDialog.h
+        src/ui/new_task/NewTaskDialog.cc
+        src/ui/new_task/NewTaskDialog.ui
         src/Dispatcher.cc
         src/Dispatcher.h
         src/event/EventBus.h
         src/event/SignalHandler.cc
         src/event/SignalHandler.h
+        src/ui/settings/SettingsDialog.h
+        src/ui/settings/SettingsDialog.cc
+        src/ui/settings/SettingsDialog.ui
 )
 
 if (${QT_VERSION_MAJOR} GREATER_EQUAL 6)

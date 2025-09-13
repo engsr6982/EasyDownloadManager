@@ -1,7 +1,7 @@
 #include "EasyDownloadManager.h"
 
 #include "Dispatcher.h"
-#include "windows/main/MainWindow.h"
+#include "ui/main/MainWindow.h"
 
 namespace edm {
 

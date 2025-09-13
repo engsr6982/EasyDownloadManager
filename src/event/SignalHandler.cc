@@ -1,8 +1,8 @@
 #include "SignalHandler.h"
 
 #include "EasyDownloadManager.h"
-#include "windows/main/MainWindow.h"
-#include "windows/new_task/NewTaskDialog.h"
+#include "ui/main/MainWindow.h"
+#include "ui/new_task/NewTaskDialog.h"
 
 #include <QApplication>
 
