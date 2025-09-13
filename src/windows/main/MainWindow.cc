@@ -125,14 +125,21 @@ void MainWindow::_buildTaskList() {
     list->setColumnCount(static_cast<int>(headers.size()));
     list->setHorizontalHeaderLabels(headers); // 设置表头
 
-    list->setSelectionBehavior(QAbstractItemView::SelectRows); // 整行选中
-    list->setEditTriggers(QAbstractItemView::NoEditTriggers);  // 禁止编辑
-    list->setAlternatingRowColors(true);                       // 交替行背景
-    list->setSortingEnabled(true);                             // 允许排序
-    list->verticalHeader()->setVisible(false);                 // 隐藏行号
-    list->horizontalHeader()->setStretchLastSection(true);     // 最后一列拉伸填满
-
+    list->setSelectionBehavior(QAbstractItemView::SelectRows);     // 整行选中
+    list->setEditTriggers(QAbstractItemView::NoEditTriggers);      // 禁止编辑
+    list->setAlternatingRowColors(true);                           // 交替行背景
+    list->setSortingEnabled(true);                                 // 允许排序
+    list->verticalHeader()->setVisible(false);                     // 隐藏行号
+    list->horizontalHeader()->setStretchLastSection(true);         // 最后一列拉伸填满
     list->sortItems(list->columnCount() - 1, Qt::DescendingOrder); // 默认按最后尝试时间降序排序
+    list->verticalHeader()->setDefaultSectionSize(20);             // 设置行高
+
+    list->setStyleSheet(R"(
+        QTableWidget::item:selected {
+            background-color: #D0E8FF; /* 淡蓝色 */
+            color: black;              /* 保证文字可读 */
+        }
+    )");
 
     // 双击打开任务信息窗口
     connect(list, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
