@@ -26,6 +26,13 @@ void Dispatcher::linkMainWindowSignals() {
         SignalHandler::instance(),
         &SignalHandler::handleCreateTask
     );
+
+    QObject::connect(
+        EventBus::instance(),
+        &EventBus::onRequestOpenSettingDialog,
+        SignalHandler::instance(),
+        &SignalHandler::handleRequestOpenSettingDialog
+    );
 }
 
 

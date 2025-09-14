@@ -29,6 +29,10 @@ void SignalHandler::handleRequestCreateTask(QWidget* parent) const {
 
 void SignalHandler::handleCreateTask(QString const& url, QString const& dir, bool useProxy) const {
     qDebug() << "SignalHandler::handleCreateTask" << url << dir << useProxy;
+    // TODO: impl
+}
+void SignalHandler::handleRequestOpenSettingDialog() const {
+    EasyDownloadManager::getOrNewInstance().tryShowSettingDialog();
 }
 
 

@@ -72,7 +72,7 @@ void MainWindow::_buildToolBar() const {
     // 连接信号
     connect(newTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onNewTask";
-        emit EventBus::instance() -> onRequestCreateTask(nullptr);
+        emit EventBus::instance() -> onRequestCreateTask();
     });
     connect(resumeTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onResumeTask";
@@ -92,7 +92,7 @@ void MainWindow::_buildToolBar() const {
     });
     connect(settings, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onSettings";
-        // TODO: impl
+        emit EventBus::instance() -> onRequestOpenSettingDialog();
     });
 }
 void MainWindow::_buildFileTree() {

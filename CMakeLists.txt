@@ -33,7 +33,20 @@ set(PROJECT_SOURCES
         src/ui/settings/SettingsDialog.h
         src/ui/settings/SettingsDialog.cc
         src/ui/settings/SettingsDialog.ui
+        src/config/EdmGlobalConfig.cc
+        src/config/EdmGlobalConfig.h
+        src/utils/StringUtils.h
 )
+
+# ---------------------------------------------------------
+# XMAKE packages base paths (change these only once)
+# ---------------------------------------------------------
+set(XMAKE_MAGIC_ENUM_DIR "C:/Users/X/AppData/Local/.xmake/packages/m/magic_enum/v0.9.7/03e2990032db4ea08102d17ff8a57da7")
+set(XMAKE_LIBCURL_DIR    "C:/Users/X/AppData/Local/.xmake/packages/l/libcurl/8.11.0/76d551ce47c74312a891bcb6ab3875e4")
+set(XMAKE_ZLIB_DIR       "C:/Users/X/AppData/Local/.xmake/packages/z/zlib/v1.3.1/95786712bac941e795afa187a68143a4")
+set(XMAKE_OPENSSL3_DIR   "C:/Users/X/AppData/Local/.xmake/packages/o/openssl3/3.5.1/e2851f95acb4466da9a58b4aabd95f79")
+
+
 
 if (${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(EasyDownloadManager
@@ -58,14 +71,29 @@ else ()
     endif ()
 endif ()
 
-target_include_directories(EasyDownloadManager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(EasyDownloadManager PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${XMAKE_MAGIC_ENUM_DIR}/include
+        ${XMAKE_LIBCURL_DIR}/include
+        ${XMAKE_ZLIB_DIR}/include
+        ${XMAKE_OPENSSL3_DIR}/include
+)
 
 target_compile_definitions(EasyDownloadManager PRIVATE
         $<$<CONFIG:Debug>:EDM_DEBUG>
 )
 
 target_link_libraries(EasyDownloadManager PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_link_directories(EasyDownloadManager PRIVATE
+        ${XMAKE_LIBCURL_DIR}/lib
+        ${XMAKE_ZLIB_DIR}/lib
+        ${XMAKE_OPENSSL3_DIR}/lib
+)
 
+
+# ---------------------------------------------------------
+# Bundle / install settings (mostly Qt boilerplate)
+# ---------------------------------------------------------
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
 # explicit, fixed bundle identifier manually though.
@@ -90,3 +118,7 @@ install(TARGETS EasyDownloadManager
 if (QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(EasyDownloadManager)
 endif ()
+
+# Dummy target (avoid building with CMake accidentally)
+add_custom_target(dummy ALL
+        COMMAND ${CMAKE_COMMAND} -E echo ">>> Use xmake to build, CMake is for CLion IDE only")

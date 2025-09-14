@@ -8,6 +8,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
 
     edm::EasyDownloadManager::getOrNewInstance().getMainWindow()->show();
-
-    return app.exec();
+    int code = app.exec();
+    edm::EasyDownloadManager::tryDestroyInstance();
+    return code;
 }

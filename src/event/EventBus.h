@@ -21,6 +21,8 @@ signals:
     void onRequestCreateTask(QWidget* parent = nullptr) const; // 请求创建任务
 
     void onCreateTask(QString const& url, QString const& dir, bool useProxy) const; // 创建任务
+
+    void onRequestOpenSettingDialog() const; // 请求打开设置对话框
 };
 
 } // namespace edm

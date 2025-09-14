@@ -17,6 +17,7 @@ public:
 public slots:
     void handleRequestCreateTask(QWidget* parent) const;
     void handleCreateTask(QString const& url, QString const& dir, bool useProxy) const;
+    void handleRequestOpenSettingDialog() const;
 };
 
 } // namespace edm

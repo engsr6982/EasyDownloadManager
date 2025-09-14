@@ -4,7 +4,7 @@
 
 1. Qt6 作为核心 UI 框架
 2. C++20 作为核心编程语言
-3. LibCurl 作为核心网络库
+3. LibCurl 作为核心网络库 (openssl/zlib/http2)
 4. SQLite3 作为核心数据库
 
 ## 特性：
@@ -44,8 +44,6 @@ declare interface EdmCreateDownloadTask {
 - [ ] 保存路径 (默认 Downloads 文件夹)
 - [ ] 临时文件路径 (默认系统临时文件夹)
 - [ ] 自启动 (静默启动)
-- [ ] 软件启动自动恢复未完成的任务(不含失败任务)
-- [ ] 通过 URL Scheme 新建任务时，是否弹出创建下载任务对话框(二次确认)
 - [ ] 下载完成是否弹出完成对话框
 - [ ] 代理配置(Http/Https/Socks)
 
