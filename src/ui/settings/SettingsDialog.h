@@ -16,6 +16,22 @@ public:
     explicit SettingsDialog(QWidget* parent = nullptr);
     ~SettingsDialog();
 
+    void showEvent(QShowEvent* event) override;
+
+    void setProxySubWidgetEnabled(bool e) const;
+
+private:
+    void initWidgets();
+
+    void syncWidgetStateFromConfig() const;
+
+    void saveWidgetStateToConfig();
+
+    void switchTabToFirst() const;
+
+private slots:
+    void onSwitchProxyType(int index) const;
+
 private:
     Ui::SettingsDialog* ui;
 };

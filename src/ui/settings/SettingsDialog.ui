@@ -95,6 +95,9 @@
          </item>
          <item row="2" column="1">
           <layout class="QHBoxLayout" name="userAgentLayout_">
+           <property name="spacing">
+            <number>10</number>
+           </property>
            <item>
             <widget class="QLineEdit" name="userAgentInput_">
              <property name="toolTip">
@@ -123,6 +126,9 @@
          </item>
          <item row="3" column="1">
           <layout class="QHBoxLayout" name="saveDirLayout_">
+           <property name="spacing">
+            <number>10</number>
+           </property>
            <item>
             <widget class="QLineEdit" name="saveDirInput_"/>
            </item>
@@ -144,6 +150,9 @@
          </item>
          <item row="4" column="1">
           <layout class="QHBoxLayout" name="tempDirLayout_">
+           <property name="spacing">
+            <number>10</number>
+           </property>
            <item>
             <widget class="QLineEdit" name="tempDirInput_"/>
            </item>

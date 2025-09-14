@@ -36,6 +36,7 @@ set(PROJECT_SOURCES
         src/config/EdmGlobalConfig.cc
         src/config/EdmGlobalConfig.h
         src/utils/StringUtils.h
+        src/utils/EnumUtils.h
 )
 
 # ---------------------------------------------------------
