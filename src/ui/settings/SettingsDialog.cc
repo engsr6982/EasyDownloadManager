@@ -68,6 +68,7 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
 
     // proxy
     auto proxy = config.getProxyConfig();
+    qDebug() << "[SettingsDialog] loading proxy.type raw:" << static_cast<int>(proxy.type_);
     ui->proxyTypeComboBox_->setCurrentIndex(enum_utils::getIndexFromEnumValue(proxy.type_).value_or(0));
     if (proxy.type_ == EdmGlobalConfig::ProxyType::None) {
         setProxySubWidgetEnabled(false); // 未启用代理，禁用控件
@@ -88,7 +89,7 @@ void SettingsDialog::saveWidgetStateToConfig() {
 
     {
         auto limit = std::stoi(string_utils::qstring2string(ui->bandWidthLimitInput_->text()));
-        qDebug() << "[SettingsDialog] bandwidth limit (stoi):" << limit;
+        qDebug() << "[SettingsDialog] saving bandwidth limit (stoi):" << limit;
         config.setBandwidthLimit(limit);
     }
     config.setUserAgent(ui->userAgentInput_->text());
@@ -120,6 +121,11 @@ void SettingsDialog::saveWidgetStateToConfig() {
         cfg.port_ = ui->proxyPortSpinBox_->value();
         cfg.user_ = ui->proxyUserInput_->text();
         cfg.password_ = ui->proxyPwdInput_->text();
+        qDebug() << "[SettingsDialog] saving proxy.type:" << static_cast<int>(cfg.type_);
+        qDebug() << "[SettingsDialog] saving proxy.host:" << cfg.host_;
+        qDebug() << "[SettingsDialog] saving proxy.port:" << cfg.port_;
+        qDebug() << "[SettingsDialog] saving proxy.user:" << cfg.user_;
+        qDebug() << "[SettingsDialog] saving proxy.password:" << cfg.password_;
         config.setProxyConfig(cfg);
     }
 }

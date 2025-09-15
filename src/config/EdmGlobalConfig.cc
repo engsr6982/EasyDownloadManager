@@ -28,7 +28,7 @@ constexpr auto kSaveDir        = "downloader/saveDir";        // string
 constexpr auto kTempDir        = "downloader/tempDir";        // string
 constexpr auto kAutoStart      = "downloader/autoStart";      // bool
 constexpr auto kShowComplete   = "downloader/showComplete";   // bool
-constexpr auto kProxyType      = "proxy/type";                // string
+constexpr auto kProxyType      = "proxy/type";                // int
 constexpr auto kProxyHost      = "proxy/host";                // string
 constexpr auto kProxyPort      = "proxy/port";                // int
 constexpr auto kProxyUser      = "proxy/user";                // string
@@ -61,12 +61,8 @@ void EdmGlobalConfig::setUserAgent(QString const& userAgent) {
 }
 
 EdmGlobalConfig::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
-    static constexpr auto None = magic_enum::enum_name(EdmGlobalConfig::ProxyType::None);
-
-    auto const typeStr = settings_.value(kProxyType, string_utils::stringview2qstring(None)).toString();
-
     ProxyConfig cfg{};
-    cfg.type_ = magic_enum::enum_cast<ProxyType>(string_utils::qstring2stringview(typeStr)).value_or(ProxyType::None);
+    cfg.type_ = static_cast<ProxyType>(settings_.value(kProxyType, static_cast<int>(ProxyType::None)).toInt());
     if (cfg.type_ == ProxyType::None) {
         return cfg;
     }
@@ -77,7 +73,7 @@ EdmGlobalConfig::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
     return cfg;
 }
 void EdmGlobalConfig::setProxyConfig(ProxyConfig const& config) {
-    settings_.setValue(kProxyType, string_utils::stringview2qstring(magic_enum::enum_name(config.type_)));
+    settings_.setValue(kProxyType, static_cast<int>(config.type_));
     settings_.setValue(kProxyHost, config.host_.value_or(QString{}));
     settings_.setValue(kProxyPort, config.port_.value_or(0));
     settings_.setValue(kProxyUser, config.user_.value_or(QString{}));
