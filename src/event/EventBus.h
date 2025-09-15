@@ -7,7 +7,7 @@ class EventBus : public QObject {
     Q_OBJECT
 
     EventBus()  = default;
-    ~EventBus() = default;
+    ~EventBus() override = default;
 
 public:
     EventBus(const EventBus&)                          = delete;

@@ -1,4 +1,5 @@
 #include "NewTaskDialog.h"
+#include "config/EdmGlobalConfig.h"
 #include "event/EventBus.h"
 #include "ui_NewTaskDialog.h"
 
@@ -18,12 +19,15 @@ NewTaskDialog::NewTaskDialog(QWidget* parent) : QDialog(parent), ui(new Ui::NewT
     if (text.startsWith("http://") || text.startsWith("https://")) {
         ui->urlInput_->setText(text);
     }
+
+    ui->dirInput_->setText(EdmGlobalConfig::instance().getSaveDir());
+    ui->useProxyCheckBox_->setChecked(EdmGlobalConfig::instance().canUseProxy());
 }
 
 NewTaskDialog::~NewTaskDialog() { delete ui; }
 
 void NewTaskDialog::on_pickDirButton__clicked() {
-    QString dir = QFileDialog::getExistingDirectory(this, "选择保存路径", QDir::homePath());
+    QString dir = QFileDialog::getExistingDirectory(this, "选择文件夹", QDir::homePath());
     if (dir.isEmpty()) {
         qDebug() << "没有选择文件夹";
         return;

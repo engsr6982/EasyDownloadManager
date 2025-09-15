@@ -42,6 +42,8 @@ public:
 
     void setProxyConfig(ProxyConfig const& config);
 
+    inline bool canUseProxy() const { return getProxyConfig().type_ != ProxyType::None; }
+
     // 存储、临时路径
     QString getSaveDir() const;
     void    setSaveDir(QString const& dir);
