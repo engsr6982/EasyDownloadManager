@@ -29,8 +29,13 @@ private:
 
     void switchTabToFirst() const;
 
+    void accept() override;
+    void reject() override;
+
 private slots:
-    void onSwitchProxyType(int index) const;
+    void onProxyTypeSwitched(int index) const;
+
+    void onResetUserAgentButtonClicked() const;
 
 private:
     Ui::SettingsDialog* ui;
