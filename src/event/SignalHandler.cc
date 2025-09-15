@@ -1,6 +1,7 @@
 #include "SignalHandler.h"
 
 #include "EasyDownloadManager.h"
+#include "EventBus.h"
 #include "ui/main/MainWindow.h"
 #include "ui/new_task/NewTaskDialog.h"
 
@@ -8,14 +9,26 @@
 
 namespace edm {
 
-SignalHandler::SignalHandler() {}
+SignalHandler* SignalHandler::instance_ = new SignalHandler{};
 
-SignalHandler::~SignalHandler() {}
 
-SignalHandler* SignalHandler::instance() {
-    static SignalHandler instance;
-    return &instance;
+SignalHandler::SignalHandler() {
+    connect(EventBus::instance(), &EventBus::onRequestCreateTask, this, &SignalHandler::handleRequestCreateTask);
+
+    connect(EventBus::instance(), &EventBus::onCreateTask, this, &SignalHandler::handleCreateTask);
+
+    connect(
+        EventBus::instance(),
+        &EventBus::onRequestOpenSettingDialog,
+        this,
+        &SignalHandler::handleRequestOpenSettingDialog
+    );
 }
+
+
+SignalHandler::~SignalHandler() = default;
+
+SignalHandler* SignalHandler::instance() { return instance_; }
 
 void SignalHandler::handleRequestCreateTask(QWidget* parent) const {
     if (!parent || !parent->isVisible()) {

@@ -6,10 +6,11 @@ namespace edm {
 class SignalHandler : public QObject {
     Q_OBJECT;
 
-    explicit SignalHandler();
+    static SignalHandler* instance_;
 
 public:
     Q_DISABLE_COPY_MOVE(SignalHandler);
+    explicit SignalHandler();
     ~SignalHandler() override;
 
     static SignalHandler* instance();

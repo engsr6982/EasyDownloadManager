@@ -6,8 +6,6 @@ class Dispatcher {
 public:
     Dispatcher();
     ~Dispatcher();
-
-    void linkMainWindowSignals();
 };
 
 } // namespace edm
