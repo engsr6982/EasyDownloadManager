@@ -6,6 +6,7 @@
 
 #include <magic_enum/magic_enum.hpp>
 #include <qdir.h>
+#include <qfiledialog.h>
 #include <qmessagebox.h>
 
 namespace edm {
@@ -23,6 +24,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Se
     );
 
     connect(ui->userAgentResetBtn_, &QToolButton::clicked, this, &SettingsDialog::onResetUserAgentButtonClicked);
+
+    connect(ui->saveDirChooseBtn_, &QToolButton::clicked, this, [this]() { chooseDir(ui->saveDirInput_); });
+    connect(ui->tempDirChooseBtn_, &QToolButton::clicked, this, [this]() { chooseDir(ui->tempDirInput_); });
 }
 
 SettingsDialog::~SettingsDialog() { delete ui; }
@@ -37,6 +41,20 @@ void SettingsDialog::setProxySubWidgetEnabled(bool e) const {
     ui->proxyPortSpinBox_->setEnabled(e);
     ui->proxyUserInput_->setEnabled(e);
     ui->proxyPwdInput_->setEnabled(e);
+}
+void SettingsDialog::chooseDir(QLineEdit* input) {
+    auto legacy = input->text();
+
+    QString dir{};
+    if (QDir{}.exists(legacy)) {
+        dir = QFileDialog::getExistingDirectory(this, "选择文件夹", legacy);
+    } else {
+        dir = QFileDialog::getExistingDirectory(this);
+    }
+
+    if (!dir.isEmpty()) {
+        input->setText(dir);
+    }
 }
 
 void SettingsDialog::initWidgets() {

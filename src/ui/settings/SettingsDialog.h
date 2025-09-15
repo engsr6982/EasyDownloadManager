@@ -2,6 +2,8 @@
 
 #include <QDialog>
 
+
+class QLineEdit;
 namespace Ui {
 class SettingsDialog;
 }
@@ -19,6 +21,8 @@ public:
     void showEvent(QShowEvent* event) override;
 
     void setProxySubWidgetEnabled(bool e) const;
+
+    void chooseDir(QLineEdit* input);
 
 private:
     void initWidgets();
