@@ -72,7 +72,7 @@ void MainWindow::_buildToolBar() const {
     // 连接信号
     connect(newTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onNewTask";
-        emit EventBus::instance() -> onRequestCreateTask();
+        emit EventBus::instance() -> onRequestOpenNewTaskDialog();
     });
     connect(resumeTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onResumeTask";

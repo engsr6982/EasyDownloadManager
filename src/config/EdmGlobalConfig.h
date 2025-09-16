@@ -1,4 +1,7 @@
 #pragma once
+#include "utils/ProxyUtils.h"
+
+
 #include <magic_enum/magic_enum.hpp>
 #include <qsettings.h>
 #include <qtclasshelpermacros.h>
@@ -30,19 +33,11 @@ public:
     void    setUserAgent(QString const& userAgent);
 
     // 代理
-    enum class ProxyType { None = 0, Http, Https, Socks4, Socks4a, Socks5, Socks5h };
-    struct ProxyConfig {
-        ProxyType              type_{ProxyType::None};
-        std::optional<QString> host_{std::nullopt};
-        std::optional<int>     port_{std::nullopt};
-        std::optional<QString> user_{std::nullopt};
-        std::optional<QString> password_{std::nullopt};
-    };
-    [[nodiscard]] ProxyConfig getProxyConfig() const;
+    [[nodiscard]] proxy_utils::ProxyConfig getProxyConfig() const;
 
-    void setProxyConfig(ProxyConfig const& config);
+    void setProxyConfig(proxy_utils::ProxyConfig const& config);
 
-    inline bool canUseProxy() const { return getProxyConfig().type_ != ProxyType::None; }
+    inline bool canUseProxy() const { return getProxyConfig().type_ != proxy_utils::Type::None; }
 
     // 存储、临时路径
     QString getSaveDir() const;
@@ -65,7 +60,7 @@ public:
     static inline constexpr auto kDefaultBandwidthLimit = 0;
     static inline constexpr auto kDefaultUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                                                         "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0";
-    static inline constexpr auto kDefaultProxyType    = ProxyType::None;
+    static inline constexpr auto kDefaultProxyType    = proxy_utils::Type::None;
     static inline constexpr auto kDefaultProxyHost    = "127.0.0.1";
     static inline constexpr auto kDefaultProxyPort    = 1080;
     static inline constexpr auto kDefaultAutoStart    = false;

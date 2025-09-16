@@ -60,10 +60,11 @@ void EdmGlobalConfig::setUserAgent(QString const& userAgent) {
     settings_.sync();
 }
 
-EdmGlobalConfig::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
-    ProxyConfig cfg{};
-    cfg.type_ = static_cast<ProxyType>(settings_.value(kProxyType, static_cast<int>(ProxyType::None)).toInt());
-    if (cfg.type_ == ProxyType::None) {
+proxy_utils::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
+    proxy_utils::ProxyConfig cfg{};
+    cfg.type_ =
+        static_cast<proxy_utils::Type>(settings_.value(kProxyType, static_cast<int>(proxy_utils::Type::None)).toInt());
+    if (cfg.type_ == proxy_utils::Type::None) {
         return cfg;
     }
     cfg.host_     = settings_.value(kProxyHost, QString{}).toString();
@@ -72,12 +73,17 @@ EdmGlobalConfig::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
     cfg.password_ = settings_.value(kProxyPassword, QString{}).toString();
     return cfg;
 }
-void EdmGlobalConfig::setProxyConfig(ProxyConfig const& config) {
+void EdmGlobalConfig::setProxyConfig(proxy_utils::ProxyConfig const& config) {
     settings_.setValue(kProxyType, static_cast<int>(config.type_));
     settings_.setValue(kProxyHost, config.host_.value_or(QString{}));
     settings_.setValue(kProxyPort, config.port_.value_or(0));
-    settings_.setValue(kProxyUser, config.user_.value_or(QString{}));
-    settings_.setValue(kProxyPassword, config.password_.value_or(QString{}));
+    if (config.isSocks4Series()) {
+        settings_.setValue(kProxyUser, QString{});
+        settings_.setValue(kProxyPassword, QString{});
+    } else {
+        settings_.setValue(kProxyUser, config.user_.value_or(QString{}));
+        settings_.setValue(kProxyPassword, config.password_.value_or(QString{}));
+    }
     settings_.sync();
 }
 

@@ -16,8 +16,8 @@ public:
     static SignalHandler* instance();
 
 public slots:
-    void handleRequestCreateTask(QWidget* parent) const;
-    void handleCreateTask(QString const& url, QString const& dir, bool useProxy) const;
+    void handleRequestOpenNewTaskDialog(QWidget* parent) const;
+    void handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const;
     void handleRequestOpenSettingDialog() const;
 };
 

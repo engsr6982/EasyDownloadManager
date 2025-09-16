@@ -37,7 +37,7 @@ void NewTaskDialog::on_pickDirButton__clicked() {
 
 void NewTaskDialog::on_dialogButtonBox__accepted() {
     emit EventBus::instance()
-        -> onCreateTask(ui->urlInput_->text(), ui->dirInput_->text(), ui->useProxyCheckBox_->isChecked());
+        -> onRequestCreateTask(ui->urlInput_->text(), ui->dirInput_->text(), ui->useProxyCheckBox_->isChecked());
     this->accept();
 }
 

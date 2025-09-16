@@ -39,6 +39,9 @@ void SettingsDialog::showEvent(QShowEvent* event) {
 void SettingsDialog::setProxySubWidgetEnabled(bool e) const {
     ui->proxyHostInput_->setEnabled(e);
     ui->proxyPortSpinBox_->setEnabled(e);
+    setUserAndPasswordWidgetEnabled(e);
+}
+void SettingsDialog::setUserAndPasswordWidgetEnabled(bool e) const {
     ui->proxyUserInput_->setEnabled(e);
     ui->proxyPwdInput_->setEnabled(e);
 }
@@ -61,7 +64,7 @@ void SettingsDialog::initWidgets() {
     for (auto val : magic_enum::enum_values<EdmGlobalConfig::AvailableThreads>()) {
         ui->threadCountComboBox_->addItem(string_utils::string2qstring(std::to_string(static_cast<int>(val))));
     }
-    for (auto type : magic_enum::enum_names<EdmGlobalConfig::ProxyType>()) {
+    for (auto type : magic_enum::enum_names<proxy_utils::Type>()) {
         ui->proxyTypeComboBox_->addItem(string_utils::stringview2qstring(type));
     }
     ui->bandWidthLimitInput_->setValidator(new QIntValidator(0, INT_MAX, this));
@@ -88,15 +91,18 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
     auto proxy = config.getProxyConfig();
     qDebug() << "[SettingsDialog] loading proxy.type raw:" << static_cast<int>(proxy.type_);
     ui->proxyTypeComboBox_->setCurrentIndex(enum_utils::getIndexFromEnumValue(proxy.type_).value_or(0));
-    if (proxy.type_ == EdmGlobalConfig::ProxyType::None) {
+    if (proxy.type_ == proxy_utils::Type::None) {
         setProxySubWidgetEnabled(false); // 未启用代理，禁用控件
         return;
     }
     setProxySubWidgetEnabled(true); // 注意：type 不为 none 时，值不应该为 nullopt
     ui->proxyHostInput_->setText(proxy.host_.value());
     ui->proxyPortSpinBox_->setValue(proxy.port_.value());
-    ui->proxyUserInput_->setText(proxy.user_.value());
-    ui->proxyPwdInput_->setText(proxy.password_.value());
+    ui->proxyUserInput_->setText(proxy.user_.value_or(""));
+    ui->proxyPwdInput_->setText(proxy.password_.value_or(""));
+    if (proxy_utils::isSocks4Series(proxy.type_)) {
+        setUserAndPasswordWidgetEnabled(false); // 特殊情况：socks4、socks4a 不支持账户密码
+    }
 }
 void SettingsDialog::saveWidgetStateToConfig() {
     auto& config = EdmGlobalConfig::instance();
@@ -133,11 +139,11 @@ void SettingsDialog::saveWidgetStateToConfig() {
 
     // proxy
     {
-        EdmGlobalConfig::ProxyConfig cfg{};
-        cfg.type_ = enum_utils::getEnumFromIndex<EdmGlobalConfig::ProxyType>(ui->proxyTypeComboBox_->currentIndex());
-        cfg.host_ = ui->proxyHostInput_->text();
-        cfg.port_ = ui->proxyPortSpinBox_->value();
-        cfg.user_ = ui->proxyUserInput_->text();
+        proxy_utils::ProxyConfig cfg{};
+        cfg.type_     = enum_utils::getEnumFromIndex<proxy_utils::Type>(ui->proxyTypeComboBox_->currentIndex());
+        cfg.host_     = ui->proxyHostInput_->text();
+        cfg.port_     = ui->proxyPortSpinBox_->value();
+        cfg.user_     = ui->proxyUserInput_->text();
         cfg.password_ = ui->proxyPwdInput_->text();
         qDebug() << "[SettingsDialog] saving proxy.type:" << static_cast<int>(cfg.type_);
         qDebug() << "[SettingsDialog] saving proxy.host:" << cfg.host_;
@@ -161,8 +167,12 @@ void SettingsDialog::reject() {
 }
 
 void SettingsDialog::onProxyTypeSwitched(int index) const {
-    auto type = enum_utils::getEnumFromIndex<EdmGlobalConfig::ProxyType>(index);
-    setProxySubWidgetEnabled(type != EdmGlobalConfig::ProxyType::None);
+    auto type = enum_utils::getEnumFromIndex<proxy_utils::Type>(index);
+    setProxySubWidgetEnabled(type != proxy_utils::Type::None);
+
+    if (proxy_utils::isSocks4Series(type)) {
+        setUserAndPasswordWidgetEnabled(false); // 特殊情况：socks4、socks4a 不支持账户密码
+    }
 }
 void SettingsDialog::onResetUserAgentButtonClicked() const {
     ui->userAgentInput_->setText(EdmGlobalConfig::kDefaultUserAgent);

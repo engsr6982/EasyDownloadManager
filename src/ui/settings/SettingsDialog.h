@@ -22,6 +22,8 @@ public:
 
     void setProxySubWidgetEnabled(bool e) const;
 
+    void setUserAndPasswordWidgetEnabled(bool e) const;
+
     void chooseDir(QLineEdit* input);
 
 private:
