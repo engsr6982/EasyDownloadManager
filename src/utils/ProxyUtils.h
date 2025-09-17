@@ -1,6 +1,7 @@
 #pragma once
 #include <QString>
 #include <optional>
+#include <sstream>
 
 
 namespace edm::proxy_utils {
@@ -25,6 +26,67 @@ struct ProxyConfig {
     inline bool isSocks4Series() const noexcept { return proxy_utils::isSocks4Series(type_); }
     inline bool isSocks5Series() const noexcept { return proxy_utils::isSocks5Series(type_); }
 };
+
+/**
+ * 转为代理地址
+ * @note 格式：[protocol://][user[:password]@]host[:port]
+ * @param cfg 代理配置
+ * @return 代理地址
+ */
+inline std::string toProxyUrl(const ProxyConfig& cfg) {
+    if (cfg.isNone()) return {};
+
+    std::ostringstream oss;
+
+    // 1. protocol
+    switch (cfg.type_) {
+    case Type::Http:
+        oss << "http://";
+        break;
+    case Type::Https:
+        oss << "https://";
+        break;
+    case Type::Socks4:
+        oss << "socks4://";
+        break;
+    case Type::Socks4a:
+        oss << "socks4a://";
+        break;
+    case Type::Socks5:
+        oss << "socks5://";
+        break;
+    case Type::Socks5h:
+        oss << "socks5h://";
+        break;
+    default:
+        return {};
+    }
+
+    // 2. user/password
+    if (cfg.user_ && !cfg.user_->isEmpty()) {
+        oss << cfg.user_->toStdString();
+        if (cfg.isSocks5Series() || cfg.isHttpSeries()) {
+            if (cfg.password_ && !cfg.password_->isEmpty()) {
+                oss << ":" << cfg.password_->toStdString();
+            }
+        }
+        oss << "@";
+    }
+
+    // 3. host
+    if (cfg.host_ && !cfg.host_->isEmpty()) {
+        oss << cfg.host_->toStdString();
+    } else {
+        return {};
+    }
+
+    // 4. port
+    if (cfg.port_ && *cfg.port_ > 0) {
+        oss << ":" << *cfg.port_;
+    }
+
+    return oss.str();
+}
 
 
 } // namespace edm::proxy_utils
