@@ -2,7 +2,9 @@
 
 #include "EasyDownloadManager.h"
 #include "EventBus.h"
+#include "config/EdmGlobalConfig.h"
 #include "downloader/TaskConfigure.h"
+#include "downloader/TaskMetaInfoFetcher.h"
 #include "ui/main/MainWindow.h"
 #include "ui/new_task/NewTaskDialog.h"
 #include "utils/StringUtils.h"
@@ -48,6 +50,19 @@ void SignalHandler::handleRequestOpenNewTaskDialog(QWidget* parent) const {
 
 void SignalHandler::handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const {
     qDebug() << "SignalHandler::handleRequestCreateTask" << url << saveDir << useProxy;
+
+    downloader::TaskConfigure configure;
+    configure.url_     = string_utils::qstring2string(url);
+    configure.saveDir_ = string_utils::qstring2string(saveDir);
+
+    auto& cfg                 = EdmGlobalConfig::instance();
+    configure.tempDir_        = string_utils::qstring2string(cfg.getTempDir());
+    configure.threadCount_    = cfg.getThreadCount();
+    configure.userAgent_      = string_utils::qstring2string(cfg.getUserAgent());
+    configure.bandWidthLimit_ = cfg.getBandwidthLimit();
+    if (auto proxy = cfg.getProxyConfig(); useProxy && !proxy.isNone()) {
+        configure.proxyUrl_ = proxy_utils::toProxyUrl(proxy);
+    }
 }
 void SignalHandler::handleRequestOpenSettingDialog() const {
     EasyDownloadManager::getOrNewInstance().tryShowSettingDialog();

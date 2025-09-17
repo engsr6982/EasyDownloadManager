@@ -1,3 +1,5 @@
+# Use xmake to build, CMake is for CLion IDE only
+
 cmake_minimum_required(VERSION 3.16)
 
 project(EasyDownloadManager VERSION 0.1 LANGUAGES CXX)
@@ -9,6 +11,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_PREFIX_PATH "D:/Apps/Qt/6.9.0/msvc2022_64" CACHE PATH "Qt install path")
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
@@ -117,6 +120,9 @@ if (MSVC)
             NOMINMAX
             UNICODE
     )
+    set_property(TARGET EasyDownloadManager PROPERTY VS_DEBUGGER_ENVIRONMENT
+        "PATH=%PATH%;${QT_BIN_DIR}"
+    )
 endif ()
 
 target_link_libraries(EasyDownloadManager PRIVATE
@@ -151,7 +157,3 @@ install(TARGETS EasyDownloadManager
 if (QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(EasyDownloadManager)
 endif ()
-
-# Dummy target (avoid building with CMake accidentally)
-add_custom_target(dummy ALL
-        COMMAND ${CMAKE_COMMAND} -E echo ">>> Use xmake to build, CMake is for CLion IDE only")
