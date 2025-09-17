@@ -37,17 +37,39 @@ set(PROJECT_SOURCES
         src/config/EdmGlobalConfig.h
         src/utils/StringUtils.h
         src/utils/EnumUtils.h
+        src/downloader/MultiThreadDownloader.cc
+        src/downloader/MultiThreadDownloader.h
+        src/downloader/DownloadWorker.cc
+        src/downloader/DownloadWorker.h
+        src/downloader/DownloadTask.cc
+        src/downloader/DownloadTask.h
+        src/downloader/TaskMetaInfoFetcher.cc
+        src/downloader/TaskMetaInfoFetcher.h
+        src/downloader/TaskConfigure.h
+        src/downloader/TaskConfigure.cc
+        src/utils/ProxyUtils.h
 )
 
 # ---------------------------------------------------------
 # XMAKE packages base paths (change these only once)
 # ---------------------------------------------------------
 set(XMAKE_MAGIC_ENUM_DIR "C:/Users/X/AppData/Local/.xmake/packages/m/magic_enum/v0.9.7/03e2990032db4ea08102d17ff8a57da7")
-set(XMAKE_LIBCURL_DIR    "C:/Users/X/AppData/Local/.xmake/packages/l/libcurl/8.11.0/76d551ce47c74312a891bcb6ab3875e4")
-set(XMAKE_ZLIB_DIR       "C:/Users/X/AppData/Local/.xmake/packages/z/zlib/v1.3.1/95786712bac941e795afa187a68143a4")
-set(XMAKE_OPENSSL3_DIR   "C:/Users/X/AppData/Local/.xmake/packages/o/openssl3/3.5.1/e2851f95acb4466da9a58b4aabd95f79")
+list(APPEND CMAKE_PREFIX_PATH
+        "C:/Users/X/AppData/Local/.xmake/packages/l/libcurl/8.11.0/9cbd24f6741f439684e839060e1c6d11"
+        "C:/Users/X/AppData/Local/.xmake/packages/z/zlib/v1.3.1/95786712bac941e795afa187a68143a4"
+)
+find_package(CURL REQUIRED)
+find_package(ZLIB REQUIRED)
 
-
+if (WIN32 AND MSVC)
+    message(STATUS "Using Schannel on Windows (MSVC)")
+else ()
+    list(APPEND CMAKE_PREFIX_PATH
+            "C:/Users/X/AppData/Local/.xmake/packages/o/openssl3/3.5.1/e2851f95acb4466da9a58b4aabd95f79"
+    )
+    message(STATUS "Using OpenSSL3")
+    find_package(OpenSSL REQUIRED)
+endif ()
 
 if (${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(EasyDownloadManager
@@ -75,22 +97,32 @@ endif ()
 target_include_directories(EasyDownloadManager PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${XMAKE_MAGIC_ENUM_DIR}/include
-        ${XMAKE_LIBCURL_DIR}/include
-        ${XMAKE_ZLIB_DIR}/include
-        ${XMAKE_OPENSSL3_DIR}/include
 )
 
-target_compile_definitions(EasyDownloadManager PRIVATE
-        $<$<CONFIG:Debug>:EDM_DEBUG>
-)
+target_compile_definitions(EasyDownloadManager PRIVATE $<$<CONFIG:Debug>:EDM_DEBUG>)
+target_compile_definitions(EasyDownloadManager PRIVATE CURL_STATICLIB)
 
-target_link_libraries(EasyDownloadManager PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
-target_link_directories(EasyDownloadManager PRIVATE
-        ${XMAKE_LIBCURL_DIR}/lib
-        ${XMAKE_ZLIB_DIR}/lib
-        ${XMAKE_OPENSSL3_DIR}/lib
-)
+if (MSVC)
+    # MSVC Runtime (/MD /MDd)
+    set_property(TARGET EasyDownloadManager PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    # 编译选项
+    target_compile_options(EasyDownloadManager PRIVATE
+            /utf-8
+            /W4
+            /sdl
+    )
+    # 宏定义
+    target_compile_definitions(EasyDownloadManager PRIVATE
+            NOMINMAX
+            UNICODE
+    )
+endif ()
 
+target_link_libraries(EasyDownloadManager PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        CURL::libcurl
+)
 
 # ---------------------------------------------------------
 # Bundle / install settings (mostly Qt boilerplate)

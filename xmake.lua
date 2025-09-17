@@ -1,16 +1,19 @@
 add_rules("mode.release", "mode.debug")
 
 add_requires("magic_enum 0.9.7")
-add_requires("libcurl 8.11.0", {
-    configs = {
-        shared = false,
-        openssl3 = true,
-        zlib = true,
-        nghttp2 = false
-    }
-});
+
+LibCurlPackage = "libcurl 8.11.0";
 
 if is_plat("windows") then
+    add_requires(LibCurlPackage, {
+        configs = {
+            shared = false,
+            openssl = false, -- use Schannel
+            openssl3 = false,
+            zlib = true,
+            nghttp2 = false
+        }
+    });
     if not has_config("vs_runtime") then
         if is_mode("debug") then
             set_runtimes("MDd")
@@ -18,9 +21,20 @@ if is_plat("windows") then
             set_runtimes("MD")
         end
     end
+else
+    add_requires(LibCurlPackage, {
+        configs = {
+            shared = false,
+            openssl = false,
+            openssl3 = true,
+            zlib = true,
+            nghttp2 = false
+        }
+    });
 end
 
 target("EasyDownloadManager")
+    set_languages("cxx20")
     add_rules("qt.widgetapp")
     add_cxflags(
         "/utf-8", "/W4", "/sdl"
