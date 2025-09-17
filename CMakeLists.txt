@@ -51,18 +51,25 @@ set(PROJECT_SOURCES
         src/downloader/TaskConfigure.h
         src/downloader/TaskConfigure.cc
         src/utils/ProxyUtils.h
+        src/database/DownloadDatabase.cc
+        src/database/DownloadDatabase.h
 )
 
 # ---------------------------------------------------------
 # XMAKE packages base paths (change these only once)
 # ---------------------------------------------------------
 set(XMAKE_MAGIC_ENUM_DIR "C:/Users/X/AppData/Local/.xmake/packages/m/magic_enum/v0.9.7/03e2990032db4ea08102d17ff8a57da7")
+set(XMAKE_SQLITE_ORM_DIR "C:/Users/X/AppData/Local/.xmake/packages/s/sqlite_orm/v1.9.1/c9f13386b9604d77abc95a8fadd7299f")
+set(XMAKE_SQLITE3_DIR "C:/Users/X/AppData/Local/.xmake/packages/s/sqlite3/3.50.0+300/fd0fca08e23247c5b556811c5311bd7d")
 list(APPEND CMAKE_PREFIX_PATH
         "C:/Users/X/AppData/Local/.xmake/packages/l/libcurl/8.11.0/9cbd24f6741f439684e839060e1c6d11"
         "C:/Users/X/AppData/Local/.xmake/packages/z/zlib/v1.3.1/95786712bac941e795afa187a68143a4"
+        ${XMAKE_SQLITE_ORM_DIR}
+        ${XMAKE_SQLITE3_DIR}
 )
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(SqliteOrm REQUIRED)
 
 if (WIN32 AND MSVC)
     message(STATUS "Using Schannel on Windows (MSVC)")
@@ -100,6 +107,8 @@ endif ()
 target_include_directories(EasyDownloadManager PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${XMAKE_MAGIC_ENUM_DIR}/include
+        ${XMAKE_SQLITE_ORM_DIR}/include
+        ${XMAKE_SQLITE3_DIR}/include
 )
 
 target_compile_definitions(EasyDownloadManager PRIVATE $<$<CONFIG:Debug>:EDM_DEBUG>)
@@ -119,15 +128,17 @@ if (MSVC)
     target_compile_definitions(EasyDownloadManager PRIVATE
             NOMINMAX
             UNICODE
+            SQLITE_ORM_OMITS_CODECVT # fix C4996 std::wstring_convert
     )
     set_property(TARGET EasyDownloadManager PROPERTY VS_DEBUGGER_ENVIRONMENT
-        "PATH=%PATH%;${QT_BIN_DIR}"
+            "PATH=%PATH%;${QT_BIN_DIR}"
     )
 endif ()
 
 target_link_libraries(EasyDownloadManager PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
         CURL::libcurl
+        ${XMAKE_SQLITE3_DIR}/lib/sqlite3.lib
 )
 
 # ---------------------------------------------------------
