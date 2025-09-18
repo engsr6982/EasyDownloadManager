@@ -1,8 +1,11 @@
 #include "MainWindow.h"
 #include "../../event/EventBus.h"
 #include "./ui_MainWindow.h"
+#include "EasyDownloadManager.h"
 #include "utils/IconUtils.h"
 
+#include <QCloseEvent>
+#include <QSystemTrayIcon>
 #include <qfileiconprovider.h>
 #include <qmenu.h>
 #include <qstandarditemmodel.h>
@@ -26,6 +29,15 @@ MainWindow::~MainWindow() { delete ui_; }
 void MainWindow::hideFileTree() const { ui_->fileTree_->setVisible(false); }
 
 void MainWindow::showFileTree() const { ui_->fileTree_->setVisible(true); }
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (auto tray = EasyDownloadManager::getOrNewInstance().getTrayIcon(); tray && tray->isVisible()) {
+        hide();
+        event->ignore();
+    } else {
+        QMainWindow::closeEvent(event);
+    }
+}
 
 void MainWindow::_addDebugDatas() const {
     auto list = ui_->taskList_;

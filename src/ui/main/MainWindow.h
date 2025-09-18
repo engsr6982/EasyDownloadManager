@@ -23,6 +23,9 @@ public:
     void hideFileTree() const;
     void showFileTree() const;
 
+protected:
+    void closeEvent(QCloseEvent* event) override;
+
 private:
     void _addDebugDatas() const;
     void _setupLayout();
