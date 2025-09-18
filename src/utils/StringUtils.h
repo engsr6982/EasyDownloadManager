@@ -24,10 +24,6 @@ inline QStringView qstring2qstringview(QString const& qs) { return QStringView(q
 // ------------------------- std::string -> 其他 -------------------------
 inline QString string2qstring(std::string const& s) { return QString::fromStdString(s); }
 
-inline QStringView string2qstringview(std::string const& s) { return QStringView{
-
-}; }
-
 inline std::string_view string2stringview(std::string const& s) { return std::string_view(s); }
 
 inline char const* string2cstr(std::string const& s) { return s.c_str(); }
