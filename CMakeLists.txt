@@ -54,6 +54,15 @@ set(PROJECT_SOURCES
         src/model/TaskModel.h
         src/model/GlobalDefaults.h
         src/model/Definition.h
+        src/ui/task_completed/TaskCompletedDialog.h
+        src/ui/task_completed/TaskCompletedDialog.cc
+        src/ui/task_completed/TaskCompletedDialog.ui
+        src/ui/task_downloading/TaskDownloadingDialog.h
+        src/ui/task_downloading/TaskDownloadingDialog.cc
+        src/ui/task_downloading/TaskDownloadingDialog.ui
+        src/ui/task_information/TaskInformationDialog.h
+        src/ui/task_information/TaskInformationDialog.cc
+        src/ui/task_information/TaskInformationDialog.ui
 )
 
 # ---------------------------------------------------------
