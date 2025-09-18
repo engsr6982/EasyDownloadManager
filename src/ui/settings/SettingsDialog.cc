@@ -61,15 +61,15 @@ void SettingsDialog::chooseDir(QLineEdit* input) {
 }
 
 void SettingsDialog::initWidgets() {
-    for (auto val : magic_enum::enum_values<EdmGlobalConfig::AvailableThreads>()) {
+    for (auto val : magic_enum::enum_values<AvailableThreads>()) {
         ui->threadCountComboBox_->addItem(string_utils::string2qstring(std::to_string(static_cast<int>(val))));
     }
-    for (auto type : magic_enum::enum_names<proxy_utils::Type>()) {
+    for (auto type : magic_enum::enum_names<ProxyType>()) {
         ui->proxyTypeComboBox_->addItem(string_utils::stringview2qstring(type));
     }
     ui->bandWidthLimitInput_->setValidator(new QIntValidator(0, INT_MAX, this));
-    ui->proxyHostInput_->setText(EdmGlobalConfig::kDefaultProxyHost);
-    ui->proxyPortSpinBox_->setValue(EdmGlobalConfig::kDefaultProxyPort);
+    ui->proxyHostInput_->setText(GlobalDefaults::kDefaultProxyHost);
+    ui->proxyPortSpinBox_->setValue(GlobalDefaults::kDefaultProxyPort);
     syncWidgetStateFromConfig();
 }
 
@@ -78,7 +78,7 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
 
     // basic
     ui->threadCountComboBox_->setCurrentIndex(
-        enum_utils::getIndexFromRawValue<EdmGlobalConfig::AvailableThreads>(config.getThreadCount()).value_or(0)
+        enum_utils::getIndexFromRawValue<AvailableThreads>(config.getThreadCount()).value_or(0)
     );
     ui->bandWidthLimitInput_->setText(string_utils::string2qstring(std::to_string(config.getBandwidthLimit())));
     ui->userAgentInput_->setText(config.getUserAgent());
@@ -91,7 +91,7 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
     auto proxy = config.getProxyConfig();
     qDebug() << "[SettingsDialog] loading proxy.type raw:" << static_cast<int>(proxy.type_);
     ui->proxyTypeComboBox_->setCurrentIndex(enum_utils::getIndexFromEnumValue(proxy.type_).value_or(0));
-    if (proxy.type_ == proxy_utils::Type::None) {
+    if (proxy.type_ == ProxyType::None) {
         setProxySubWidgetEnabled(false); // 未启用代理，禁用控件
         return;
     }
@@ -107,9 +107,7 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
 void SettingsDialog::saveWidgetStateToConfig() {
     auto& config = EdmGlobalConfig::instance();
 
-    config.setThreadCount(
-        enum_utils::getRawValueFromIndex<EdmGlobalConfig::AvailableThreads>(ui->threadCountComboBox_->currentIndex())
-    );
+    config.setThreadCount(enum_utils::getRawValueFromIndex<AvailableThreads>(ui->threadCountComboBox_->currentIndex()));
 
     {
         auto limit = std::stoi(string_utils::qstring2string(ui->bandWidthLimitInput_->text()));
@@ -140,7 +138,7 @@ void SettingsDialog::saveWidgetStateToConfig() {
     // proxy
     {
         proxy_utils::ProxyConfig cfg{};
-        cfg.type_     = enum_utils::getEnumFromIndex<proxy_utils::Type>(ui->proxyTypeComboBox_->currentIndex());
+        cfg.type_     = enum_utils::getEnumFromIndex<ProxyType>(ui->proxyTypeComboBox_->currentIndex());
         cfg.host_     = ui->proxyHostInput_->text();
         cfg.port_     = ui->proxyPortSpinBox_->value();
         cfg.user_     = ui->proxyUserInput_->text();
@@ -167,15 +165,15 @@ void SettingsDialog::reject() {
 }
 
 void SettingsDialog::onProxyTypeSwitched(int index) const {
-    auto type = enum_utils::getEnumFromIndex<proxy_utils::Type>(index);
-    setProxySubWidgetEnabled(type != proxy_utils::Type::None);
+    auto type = enum_utils::getEnumFromIndex<ProxyType>(index);
+    setProxySubWidgetEnabled(type != ProxyType::None);
 
     if (proxy_utils::isSocks4Series(type)) {
         setUserAndPasswordWidgetEnabled(false); // 特殊情况：socks4、socks4a 不支持账户密码
     }
 }
 void SettingsDialog::onResetUserAgentButtonClicked() const {
-    ui->userAgentInput_->setText(EdmGlobalConfig::kDefaultUserAgent);
+    ui->userAgentInput_->setText(GlobalDefaults::kDefaultUserAgent);
 }
 
 

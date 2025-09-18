@@ -13,17 +13,6 @@ namespace edm ::downloader {
 
 class TaskMetaInfoFetcher;
 
-
-enum class TaskState {
-    Pending = 0, // 等待开始
-    Running,     // 正在运行
-    Paused,      // 暂停
-    Canceled,    // 取消
-    Finished,    // 完成
-    Failed,      // 失败(异常)
-};
-
-
 class DownloadTask final {
     TaskState                  state_{TaskState::Pending};
     TaskConfigure              configure_;

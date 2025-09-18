@@ -1,4 +1,6 @@
 #pragma once
+#include "model/GlobalDefaults.h"
+
 #include <QString>
 #include <optional>
 #include <sstream>
@@ -6,16 +8,13 @@
 
 namespace edm::proxy_utils {
 
-
-enum class Type { None = 0, Http, Https, Socks4, Socks4a, Socks5, Socks5h };
-
-inline bool isNone(Type type) noexcept { return type == Type::None; }
-inline bool isHttpSeries(Type type) noexcept { return type == Type::Http || type == Type::Https; }
-inline bool isSocks4Series(Type type) noexcept { return type == Type::Socks4 || type == Type::Socks4a; }
-inline bool isSocks5Series(Type type) noexcept { return type == Type::Socks5 || type == Type::Socks5h; }
+inline bool isNone(ProxyType type) noexcept { return type == ProxyType::None; }
+inline bool isHttpSeries(ProxyType type) noexcept { return type == ProxyType::Http || type == ProxyType::Https; }
+inline bool isSocks4Series(ProxyType type) noexcept { return type == ProxyType::Socks4 || type == ProxyType::Socks4a; }
+inline bool isSocks5Series(ProxyType type) noexcept { return type == ProxyType::Socks5 || type == ProxyType::Socks5h; }
 
 struct ProxyConfig {
-    Type                   type_{Type::None};
+    ProxyType              type_{ProxyType::None};
     std::optional<QString> host_{std::nullopt};
     std::optional<int>     port_{std::nullopt};
     std::optional<QString> user_{std::nullopt};
@@ -40,22 +39,22 @@ inline std::string toProxyUrl(const ProxyConfig& cfg) {
 
     // 1. protocol
     switch (cfg.type_) {
-    case Type::Http:
+    case ProxyType::Http:
         oss << "http://";
         break;
-    case Type::Https:
+    case ProxyType::Https:
         oss << "https://";
         break;
-    case Type::Socks4:
+    case ProxyType::Socks4:
         oss << "socks4://";
         break;
-    case Type::Socks4a:
+    case ProxyType::Socks4a:
         oss << "socks4a://";
         break;
-    case Type::Socks5:
+    case ProxyType::Socks5:
         oss << "socks5://";
         break;
-    case Type::Socks5h:
+    case ProxyType::Socks5h:
         oss << "socks5h://";
         break;
     default:

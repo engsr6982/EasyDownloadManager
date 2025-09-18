@@ -106,12 +106,12 @@ void MainWindow::_buildFileTree() {
     auto topCategories = QStringList{"所有任务", "进行中", "已完成", "已取消"};
     using TypeWithIcon = std::pair<QString, QIcon>;
     auto subCategories = std::array<TypeWithIcon, 6>{
-        TypeWithIcon{      "视频",             icon_utils::getIcon(icon_utils::IconType::VideoFile)},
-        TypeWithIcon{      "音频",             icon_utils::getIcon(icon_utils::IconType::AudioFile)},
-        TypeWithIcon{  "压缩文件",        icon_utils::getIcon(icon_utils::IconType::CompressedFile)},
-        TypeWithIcon{      "文档",          icon_utils::getIcon(icon_utils::IconType::DocumentFile)},
-        TypeWithIcon{"可执行程序", icon_utils::getIcon(icon_utils::IconType::ExecutableProgramFile)},
-        TypeWithIcon{      "其它",                  icon_utils::getIcon(icon_utils::IconType::File)},
+        TypeWithIcon{      "视频",      icon_utils::getIcon(icon_utils::IconType::VideoFile)},
+        TypeWithIcon{      "音频",      icon_utils::getIcon(icon_utils::IconType::AudioFile)},
+        TypeWithIcon{  "压缩文件", icon_utils::getIcon(icon_utils::IconType::CompressedFile)},
+        TypeWithIcon{      "文档",   icon_utils::getIcon(icon_utils::IconType::DocumentFile)},
+        TypeWithIcon{"可执行程序",    icon_utils::getIcon(icon_utils::IconType::Application)},
+        TypeWithIcon{      "其它",           icon_utils::getIcon(icon_utils::IconType::File)},
     };
 
     auto const folderIcon = icon_utils::getIcon(icon_utils::IconType::Folder);

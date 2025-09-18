@@ -18,11 +18,11 @@ struct EdmIconProvider {
         Folder   = QFileIconProvider::IconType::Folder,
         File     = QFileIconProvider::IconType::File,
 
-        VideoFile             = 20, // 视频文件
-        AudioFile             = 21, // 音频文件
-        CompressedFile        = 22, // 压缩文件
-        DocumentFile          = 23, // 文档文件
-        ExecutableProgramFile = 24, // 可执行程序文件
+        VideoFile      = 20, // 视频文件
+        AudioFile      = 21, // 音频文件
+        CompressedFile = 22, // 压缩文件
+        DocumentFile   = 23, // 文档文件
+        Application    = 24, // 应用程序
     };
 
     inline static bool isQtCanProvide(Type type) {
@@ -65,7 +65,7 @@ struct EdmIconProvider {
             return getIconWithFileExtension(QStringLiteral("edm.zip"));
         case Type::DocumentFile:
             return getIconWithFileExtension(QStringLiteral("edm.docx"));
-        case Type::ExecutableProgramFile:
+        case Type::Application:
             return getIconWithFileExtension(QStringLiteral("edm.exe"));
         default:
             return getIconFromQt(type); // 剩余类型从 Qt 获取，如果获取不了 fallback 为文件

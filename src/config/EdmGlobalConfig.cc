@@ -36,7 +36,7 @@ constexpr auto kProxyPassword  = "proxy/password";            // string
 
 
 int EdmGlobalConfig::getThreadCount() const {
-    return settings_.value(kThreadCount, static_cast<int>(kDefaultThreadCount)).toInt();
+    return settings_.value(kThreadCount, static_cast<int>(GlobalDefaults::kDefaultThreadCount)).toInt();
 }
 
 void EdmGlobalConfig::setThreadCount(int count) {
@@ -44,16 +44,18 @@ void EdmGlobalConfig::setThreadCount(int count) {
     settings_.sync();
 }
 
-unsigned int EdmGlobalConfig::getBandwidthLimit() const {
-    return settings_.value(kBandwidthLimit, kDefaultBandwidthLimit).toInt();
+BandWidthLimit EdmGlobalConfig::getBandwidthLimit() const {
+    return settings_.value(kBandwidthLimit, GlobalDefaults::kDefaultBandwidthLimit).toInt();
 }
 
-void EdmGlobalConfig::setBandwidthLimit(unsigned int limit) {
+void EdmGlobalConfig::setBandwidthLimit(BandWidthLimit limit) {
     settings_.setValue(kBandwidthLimit, limit);
     settings_.sync();
 }
 
-QString EdmGlobalConfig::getUserAgent() const { return settings_.value(kUserAgent, kDefaultUserAgent).toString(); }
+QString EdmGlobalConfig::getUserAgent() const {
+    return settings_.value(kUserAgent, GlobalDefaults::kDefaultUserAgent).toString();
+}
 
 void EdmGlobalConfig::setUserAgent(QString const& userAgent) {
     settings_.setValue(kUserAgent, userAgent);
@@ -62,9 +64,8 @@ void EdmGlobalConfig::setUserAgent(QString const& userAgent) {
 
 proxy_utils::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
     proxy_utils::ProxyConfig cfg{};
-    cfg.type_ =
-        static_cast<proxy_utils::Type>(settings_.value(kProxyType, static_cast<int>(proxy_utils::Type::None)).toInt());
-    if (cfg.type_ == proxy_utils::Type::None) {
+    cfg.type_ = static_cast<ProxyType>(settings_.value(kProxyType, static_cast<int>(ProxyType::None)).toInt());
+    if (cfg.type_ == ProxyType::None) {
         return cfg;
     }
     cfg.host_     = settings_.value(kProxyHost, QString{}).toString();

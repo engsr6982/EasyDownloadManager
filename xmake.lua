@@ -1,7 +1,7 @@
 add_rules("mode.release", "mode.debug")
 
 add_requires("magic_enum 0.9.7")
-add_requires("sqlite_orm 1.9.1")
+add_requires("sqlitecpp 3.3.3")
 LibCurlPackage = "libcurl 8.11.0";
 
 if is_plat("windows") then
@@ -60,4 +60,4 @@ target("EasyDownloadManager")
         add_defines("EDM_DEBUG")
     end
 
-    add_packages("magic_enum", "libcurl", "sqlite_orm")
+    add_packages("magic_enum", "libcurl", "sqlitecpp")

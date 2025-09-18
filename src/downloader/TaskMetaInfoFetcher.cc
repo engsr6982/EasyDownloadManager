@@ -12,7 +12,7 @@ namespace edm ::downloader {
 TaskMetaInfoFetcher::TaskMetaInfoFetcher(TaskConfigure& configure) : configure_(configure) {}
 
 
-long long TaskMetaInfoFetcher::getFileSize() const {
+FileSize TaskMetaInfoFetcher::getFileSize() const {
     auto scurl = configure_.newCurl();
     if (!scurl) {
         qDebug() << "TaskConfigure::newCurl is nullptr";
@@ -40,7 +40,7 @@ std::string TaskMetaInfoFetcher::getFileSizeString() const {
 
     constexpr std::array<const char*, 5> units{"B", "KB", "MB", "GB", "TB"};
 
-    double sz        = static_cast<double>(size);
+    auto   sz        = static_cast<double>(size);
     size_t unitIndex = 0;
 
     while (sz >= 1024.0 && unitIndex < units.size() - 1) {

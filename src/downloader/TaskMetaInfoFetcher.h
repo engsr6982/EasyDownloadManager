@@ -1,4 +1,6 @@
 #pragma once
+#include "model/Definition.h"
+
 #include <qtclasshelpermacros.h>
 #include <string>
 
@@ -18,12 +20,12 @@ public:
      * 获取文件大小
      * @return 文件大小，单位为字节(byte), -1 表示获取失败
      */
-    long long getFileSize() const;
+    [[nodiscard]] FileSize getFileSize() const;
 
     /**
      * 获取文件大小 (自适应单位)
      */
-    std::string getFileSizeString() const;
+    [[nodiscard]] std::string getFileSizeString() const;
 
     /**
      * 是否支持 Range 请求

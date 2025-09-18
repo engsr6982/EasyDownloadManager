@@ -1,4 +1,7 @@
 #pragma once
+#include "model/TaskModel.h"
+
+
 #include <optional>
 #include <string>
 
@@ -32,7 +35,7 @@ struct TaskConfigure {
     std::string                saveDir_;
     std::string                tempDir_;
     int                        threadCount_;
-    int                        bandWidthLimit_{0}; // 单位：KB/s
+    BandWidthLimit             bandWidthLimit_{0}; // 单位：KB/s
     std::optional<std::string> userAgent_;
     std::optional<std::string> origin_;
     std::optional<std::string> referer_;
@@ -40,7 +43,7 @@ struct TaskConfigure {
     std::optional<std::string> mimeType_;
     std::optional<std::string> proxyUrl_;
 
-    enum class RequestType { GET, POST } requestType_{RequestType::GET};
+    RequestType                requestType_{RequestType::GET};
     std::optional<std::string> postBody_;
 
     [[nodiscard]] SCurl newCurl() const;
