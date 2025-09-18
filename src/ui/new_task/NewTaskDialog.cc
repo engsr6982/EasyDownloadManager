@@ -21,7 +21,12 @@ NewTaskDialog::NewTaskDialog(QWidget* parent) : QDialog(parent), ui(new Ui::NewT
     }
 
     ui->dirInput_->setText(EdmGlobalConfig::instance().getSaveDir());
-    ui->useProxyCheckBox_->setChecked(EdmGlobalConfig::instance().canUseProxy());
+
+    {
+        auto canUse = EdmGlobalConfig::instance().canUseProxy();
+        ui->useProxyCheckBox_->setChecked(canUse);
+        ui->useProxyCheckBox_->setEnabled(canUse);
+    }
 }
 
 NewTaskDialog::~NewTaskDialog() { delete ui; }
