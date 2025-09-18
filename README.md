@@ -9,16 +9,19 @@
 
 ## 特性：
 
-### 1. URL Scheme
+### 1. 本地 Http Server
 
-统一 URL Scheme 地址前缀: `edm://`
+> 因为 **URL Scheme** 跨平台不便，且浏览器有安全策略限制，需要用户同意，故使用 Http Server
 
-#### 新建任务
+#### 新建任务 API
 
-- `edm://add`
+地址: `/newTask`
+方法: GET
+
+参数:
 
 ```ts
-declare interface EdmCreateDownloadTask {
+declare interface NewTaskRequest {
     url: string; // 下载链接
     method: "GET" | "POST"; // 请求方法
     fileName: string; // 下载文件名
@@ -31,6 +34,18 @@ declare interface EdmCreateDownloadTask {
     cookie?: string; // 本次请求附加的 cookie
     origin?: string; // 源站点 (根）
     referer?: string; // 防盗链
+}
+```
+
+响应:
+
+```ts
+declare interface NewTaskResponse {
+    code: number; // http 状态码
+    message: string; // http 状态码描述
+    data?: {
+        id: number; // 任务ID
+    }
 }
 ```
 
@@ -83,7 +98,7 @@ declare interface EdmCreateDownloadTask {
 
 #### 3.4. 任务完成窗口
 
-- [ ] 显示任务状态：文件名称、耗时、文件大小
+- [ ] 显示任务状态：文件名称、文件大小
 - [ ] 提供：打开文件夹、打开文件、关闭
 
 #### 3.5. 任务下载中窗口
@@ -99,8 +114,7 @@ declare interface EdmCreateDownloadTask {
 #### 3.6. 任务信息窗口
 
 - [ ] 最上方显示任务名称(文件名)
-- [ ] 下方依次显示：文件大小、状态、保存路径、临时路径、URL、来源页面网址、来源页面标题、来源浏览器、创建时间、最后尝试
-- [ ] 提供：“打开日志文件”、“开开下载文件夹”、“打开页面网址”、“关闭”
+- [ ] 下方依次显示：文件大小、状态、保存路径、临时路径、URL、来源页面网址、来源页面标题、创建时间、最后尝试
 
 ### 4. 系统托盘
 
