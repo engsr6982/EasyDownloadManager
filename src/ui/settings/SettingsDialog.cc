@@ -67,7 +67,7 @@ void SettingsDialog::initWidgets() {
     for (auto type : magic_enum::enum_names<ProxyType>()) {
         ui->proxyTypeComboBox_->addItem(string_utils::stringview2qstring(type));
     }
-    ui->bandWidthLimitInput_->setValidator(new QIntValidator(0, INT_MAX, this));
+    ui->bandWidthLimitInput_->setValidator(new QIntValidator(0, INT64_MAX, this));
     ui->proxyHostInput_->setText(GlobalDefaults::kDefaultProxyHost);
     ui->proxyPortSpinBox_->setValue(GlobalDefaults::kDefaultProxyPort);
     syncWidgetStateFromConfig();
