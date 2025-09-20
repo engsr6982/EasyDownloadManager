@@ -52,13 +52,14 @@ public:
     bool canShowDownloadCompleteDialog() const;
     void setShowDownloadCompleteDialog(bool show);
 
-
 public:
     static inline constexpr auto kDefaultAutoStart    = false;
     static inline constexpr auto kDefaultShowComplete = true;
 
+    static QString getAppDataDir();
     static QString getDefaultSaveDir();
     static QString getDefaultTempDir();
+    static QString getDatabasePath();
 };
 
 } // namespace edm

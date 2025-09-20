@@ -119,27 +119,20 @@ void EdmGlobalConfig::setShowDownloadCompleteDialog(bool show) {
 }
 
 
+QString EdmGlobalConfig::getAppDataDir() {
+    QString path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/edm";
+    (void)QDir().mkpath(path);
+    return path;
+}
 QString EdmGlobalConfig::getDefaultSaveDir() {
     return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 }
 QString EdmGlobalConfig::getDefaultTempDir() {
-    QString temp = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/edm";
-    QDir    dir;
-    if (!dir.exists(temp)) {
-        if (!dir.mkpath(temp)) {
-            auto msgBox = new QMessageBox(
-                QMessageBox::Warning,
-                "Error",
-                "Failed to create temp directory",
-                QMessageBox::Ok,
-                EasyDownloadManager::getOrNewInstance().getMainWindow()
-            );
-            msgBox->setAttribute(Qt::WA_DeleteOnClose);
-            msgBox->show();
-        }
-    }
-    return temp;
+    QString path = getAppDataDir() + "/tasks";
+    (void)QDir().mkpath(path);
+    return path;
 }
+QString EdmGlobalConfig::getDatabasePath() { return getAppDataDir() + "/downloads.db"; }
 
 
 } // namespace edm

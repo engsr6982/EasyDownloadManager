@@ -45,8 +45,8 @@ struct TaskModel {
     TaskState      state;          // 任务状态
     BandWidthLimit bandWidthLimit; // 带宽限制 (0: 未设置 | 单位 KB/s)
     int            threadCount;    // 下载线程数 (0 为未设置)
-    int64_t        firstTry;       // 首次尝试时间戳
-    int64_t        lastTry;        // 最后一次尝试时间戳
+    TimeStamp      firstTry;       // 首次尝试时间戳
+    TimeStamp      lastTry;        // 最后一次尝试时间戳
     std::string    userAgent;      // User-Agent
     Resumable      resumable;      // 是否支持断点续传
     std::string    pageUrl;        // 页面链接

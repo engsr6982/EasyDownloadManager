@@ -1,6 +1,7 @@
 #include "TaskMetaInfoFetcher.h"
 
 #include "TaskConfigure.h"
+#include "utils/Utils.h"
 
 #include <array>
 #include <format>
@@ -36,20 +37,7 @@ FileSize TaskMetaInfoFetcher::getFileSize() const {
 
 std::string TaskMetaInfoFetcher::getFileSizeString() const {
     auto size = getFileSize(); // byte
-    if (size <= 0) return "0 B";
-
-    constexpr std::array<const char*, 5> units{"B", "KB", "MB", "GB", "TB"};
-
-    auto   sz        = static_cast<double>(size);
-    size_t unitIndex = 0;
-
-    while (sz >= 1024.0 && unitIndex < units.size() - 1) {
-        sz /= 1024.0;
-        ++unitIndex;
-    }
-
-    // 保留两位小数
-    return std::format("{:.2f} {}", sz, units[unitIndex]);
+    return utils::FileSize2String(size);
 }
 
 bool TaskMetaInfoFetcher::isSupportRange() const {
