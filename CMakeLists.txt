@@ -65,6 +65,7 @@ set(PROJECT_SOURCES
         src/ui/task_information/TaskInformationDialog.ui
         src/components/ThreadProgressBar.cc
         src/components/ThreadProgressBar.h
+        src/utils/Utils.h
 )
 
 # ---------------------------------------------------------

@@ -13,6 +13,8 @@ class QStandardItemModel;
 
 namespace edm {
 
+struct TaskModel;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -23,11 +25,14 @@ public:
     void hideFileTree() const;
     void showFileTree() const;
 
+    void initDataFromDB();
+
+    void insertTask(TaskModel const& task);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
 private:
-    void _addDebugDatas() const;
     void _setupLayout();
     void _buildToolBar() const;
     void _buildFileTree();

@@ -2,10 +2,15 @@
 #include "../../event/EventBus.h"
 #include "./ui_MainWindow.h"
 #include "EasyDownloadManager.h"
+#include "database/DownloadDatabase.h"
+#include "model/TaskModel.h"
 #include "utils/IconUtils.h"
+#include "utils/StringUtils.h"
+#include "utils/Utils.h"
 
 #include <QCloseEvent>
 #include <QSystemTrayIcon>
+#include <magic_enum/magic_enum.hpp>
 #include <qfileiconprovider.h>
 #include <qmenu.h>
 #include <qstandarditemmodel.h>
@@ -19,9 +24,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainW
 
     _setupLayout(); // 初始化布局
 
-#ifdef EDM_DEBUG
-    _addDebugDatas();
-#endif
+    initDataFromDB();
 }
 
 MainWindow::~MainWindow() { delete ui_; }
@@ -29,6 +32,32 @@ MainWindow::~MainWindow() { delete ui_; }
 void MainWindow::hideFileTree() const { ui_->fileTree_->setVisible(false); }
 
 void MainWindow::showFileTree() const { ui_->fileTree_->setVisible(true); }
+
+void MainWindow::initDataFromDB() {
+    auto db = EasyDownloadManager::getOrNewInstance().getDatabase();
+    assert(db != nullptr);
+    ui_->taskList_->setUpdatesEnabled(false);
+    db->forEachTask([this](TaskModel const& task) {
+        insertTask(task);
+        return true;
+    });
+    ui_->taskList_->setUpdatesEnabled(true);
+}
+
+void MainWindow::insertTask(TaskModel const& task) {
+    auto table = ui_->taskList_;
+
+    int row = table->rowCount();
+    table->insertRow(row);
+
+    // "文件", "大小", "状态", "带宽", "剩余时间", "最后尝试"
+    table->setItem(row, 0, new QTableWidgetItem(string_utils::string2qstring(task.fileName)));
+    table->setItem(row, 1, new QTableWidgetItem(string_utils::string2qstring(utils::FileSize2String(task.fileSize))));
+    table->setItem(row, 2, new QTableWidgetItem(string_utils::stringview2qstring(magic_enum::enum_name(task.state))));
+    table->setItem(row, 3, new QTableWidgetItem(""));
+    table->setItem(row, 4, new QTableWidgetItem(string_utils::string2qstring(utils::TimeStamp2String(task.firstTry))));
+    table->setItem(row, 5, new QTableWidgetItem(string_utils::string2qstring(utils::TimeStamp2String(task.lastTry))));
+}
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (auto tray = EasyDownloadManager::getOrNewInstance().getTrayIcon(); tray && tray->isVisible()) {
@@ -39,23 +68,6 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     }
 }
 
-void MainWindow::_addDebugDatas() const {
-    auto list = ui_->taskList_;
-    list->setRowCount(2);
-    list->setItem(0, 0, new QTableWidgetItem("示例文件.mp4"));
-    list->setItem(0, 1, new QTableWidgetItem("700 PB"));
-    list->setItem(0, 2, new QTableWidgetItem("进行中"));
-    list->setItem(0, 3, new QTableWidgetItem("12 TB/s"));
-    list->setItem(0, 4, new QTableWidgetItem("00:12:34"));
-    list->setItem(0, 5, new QTableWidgetItem("2025-09-12 22:00"));
-
-    list->setItem(1, 0, new QTableWidgetItem("explorer.exe"));
-    list->setItem(1, 1, new QTableWidgetItem("11mb"));
-    list->setItem(1, 2, new QTableWidgetItem("进行中"));
-    list->setItem(1, 3, new QTableWidgetItem("12 kb/s"));
-    list->setItem(1, 4, new QTableWidgetItem("00:1:34"));
-    list->setItem(1, 5, new QTableWidgetItem("2025-09-12 23:00"));
-}
 
 void MainWindow::_setupLayout() {
     setWindowTitle("EasyDownloadManager"); // 设置窗口标题

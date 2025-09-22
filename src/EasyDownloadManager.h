@@ -9,6 +9,7 @@ namespace edm {
 class MainWindow;
 class Dispatcher;
 class SettingsDialog;
+class DownloadDatabase;
 
 class EasyDownloadManager {
     static EasyDownloadManager* instance_;
@@ -26,18 +27,23 @@ public:
 
     void _initSystemTrayIcon();
 
-    MainWindow*     getMainWindow() const;
-    Dispatcher*     getDispatcher() const;
-    SettingsDialog* getSettingsDialog() const;
-    QSystemTrayIcon* getTrayIcon() const;
+    MainWindow*       getMainWindow() const;
+    Dispatcher*       getDispatcher() const;
+    SettingsDialog*   getSettingsDialog() const;
+    QSystemTrayIcon*  getTrayIcon() const;
+    DownloadDatabase* getDatabase() const;
 
     void tryShowSettingDialog() const;
 
 private:
-    std::unique_ptr<Dispatcher>      dispatcher_{nullptr};
-    std::unique_ptr<MainWindow>      mainWindow_{nullptr};
-    std::unique_ptr<SettingsDialog>  settingsDialog_{nullptr};
-    std::unique_ptr<QSystemTrayIcon> trayIcon_{nullptr};
+    void _delayInit();
+    void _delayCleanup();
+
+    std::unique_ptr<Dispatcher>       dispatcher_{nullptr};
+    std::unique_ptr<DownloadDatabase> database_{nullptr};
+    std::unique_ptr<MainWindow>       mainWindow_{nullptr};
+    std::unique_ptr<SettingsDialog>   settingsDialog_{nullptr};
+    std::unique_ptr<QSystemTrayIcon>  trayIcon_{nullptr};
 };
 
 } // namespace edm

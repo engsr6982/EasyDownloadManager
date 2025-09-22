@@ -2,6 +2,7 @@
 
 #include "Dispatcher.h"
 #include "QSystemTrayIcon"
+#include "database/DownloadDatabase.h"
 #include "ui/main/MainWindow.h"
 #include "ui/settings/SettingsDialog.h"
 #include "utils/IconUtils.h"
@@ -16,31 +17,36 @@ namespace edm {
 EasyDownloadManager* EasyDownloadManager::instance_{nullptr};
 
 EasyDownloadManager& EasyDownloadManager::getOrNewInstance() {
-    if (!instance_) {
+    if (instance_ == nullptr) {
         instance_ = new EasyDownloadManager{};
+        instance_->_delayInit();
     }
     return *instance_;
 }
 void EasyDownloadManager::tryDestroyInstance() {
     if (instance_) {
+        instance_->_delayCleanup();
         delete instance_;
         instance_ = nullptr;
     }
 }
 
-EasyDownloadManager::EasyDownloadManager() {
+EasyDownloadManager::EasyDownloadManager()  = default;
+EasyDownloadManager::~EasyDownloadManager() = default;
+void EasyDownloadManager::_delayInit() {
+    database_       = std::make_unique<DownloadDatabase>();
     dispatcher_     = std::make_unique<Dispatcher>();
     mainWindow_     = std::make_unique<MainWindow>();
     settingsDialog_ = std::make_unique<SettingsDialog>(mainWindow_.get());
 
     _initSystemTrayIcon();
 }
-
-EasyDownloadManager::~EasyDownloadManager() {
+void EasyDownloadManager::_delayCleanup() {
     trayIcon_.reset();
     settingsDialog_.reset();
     mainWindow_.reset();
     dispatcher_.reset();
+    database_.reset();
 }
 
 void EasyDownloadManager::_initSystemTrayIcon() {
@@ -72,10 +78,11 @@ void EasyDownloadManager::_initSystemTrayIcon() {
     );
 }
 
-MainWindow*      EasyDownloadManager::getMainWindow() const { return mainWindow_.get(); }
-Dispatcher*      EasyDownloadManager::getDispatcher() const { return dispatcher_.get(); }
-SettingsDialog*  EasyDownloadManager::getSettingsDialog() const { return settingsDialog_.get(); }
-QSystemTrayIcon* EasyDownloadManager::getTrayIcon() const { return trayIcon_.get(); }
+MainWindow*       EasyDownloadManager::getMainWindow() const { return mainWindow_.get(); }
+Dispatcher*       EasyDownloadManager::getDispatcher() const { return dispatcher_.get(); }
+SettingsDialog*   EasyDownloadManager::getSettingsDialog() const { return settingsDialog_.get(); }
+QSystemTrayIcon*  EasyDownloadManager::getTrayIcon() const { return trayIcon_.get(); }
+DownloadDatabase* EasyDownloadManager::getDatabase() const { return database_.get(); }
 
 
 void EasyDownloadManager::tryShowSettingDialog() const {
