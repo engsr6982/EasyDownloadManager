@@ -20,9 +20,8 @@ public:
 signals:
     /**
      * 请求创建任务对话框 (当对话框接受后，触发 onRequestCreateTask 信号)
-     * @param parent 父窗口，如果为空，则使用主窗口
      */
-    void onRequestOpenNewTaskDialog(QWidget* parent = nullptr) const;
+    void onRequestOpenNewTaskDialog(bool checked = false) const;
 
     /**
      * 请求创建任务 (NewTaskDialog::accept 时发出信号)
@@ -32,7 +31,9 @@ signals:
      */
     void onRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const;
 
-    void onRequestOpenSettingDialog() const; // 请求打开设置对话框
+    void onRequestOpenSettingDialog(bool checked = false) const; // 请求打开设置对话框
+
+    void onRequestOpenTaskInfoDialog(int id) const; // 请求打开任务信息对话框
 };
 
 } // namespace edm

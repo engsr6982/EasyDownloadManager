@@ -3,10 +3,12 @@
 #include "EasyDownloadManager.h"
 #include "EventBus.h"
 #include "config/EdmGlobalConfig.h"
+#include "database/DownloadDatabase.h"
 #include "downloader/TaskConfigure.h"
 #include "downloader/TaskMetaInfoFetcher.h"
 #include "ui/main/MainWindow.h"
 #include "ui/new_task/NewTaskDialog.h"
+#include "ui/task_information/TaskInformationDialog.h"
 #include "utils/StringUtils.h"
 
 #include <QApplication>
@@ -32,6 +34,13 @@ SignalHandler::SignalHandler() {
         this,
         &SignalHandler::handleRequestOpenSettingDialog
     );
+
+    connect(
+        EventBus::instance(),
+        &EventBus::onRequestOpenTaskInfoDialog,
+        this,
+        &SignalHandler::handleRequestOpenTaskInfoDialog
+    );
 }
 
 
@@ -39,11 +48,8 @@ SignalHandler::~SignalHandler() = default;
 
 SignalHandler* SignalHandler::instance() { return instance_; }
 
-void SignalHandler::handleRequestOpenNewTaskDialog(QWidget* parent) const {
-    if (!parent || !parent->isVisible()) {
-        parent = EasyDownloadManager::getOrNewInstance().getMainWindow();
-    }
-    auto dialog = new NewTaskDialog(parent);
+void SignalHandler::handleRequestOpenNewTaskDialog(bool /*checked*/) const {
+    auto dialog = new NewTaskDialog(EasyDownloadManager::getOrNewInstance().getMainWindow());
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
 }
@@ -64,8 +70,19 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
         configure.proxyUrl_ = proxy_utils::toProxyUrl(proxy);
     }
 }
-void SignalHandler::handleRequestOpenSettingDialog() const {
+void SignalHandler::handleRequestOpenSettingDialog(bool checked) const {
     EasyDownloadManager::getOrNewInstance().tryShowSettingDialog();
+}
+void SignalHandler::handleRequestOpenTaskInfoDialog(int id) const {
+    auto db   = EasyDownloadManager::getOrNewInstance().getDatabase();
+    auto info = db->getTaskById(id);
+    if (!info) {
+        return;
+    }
+    // TODO: 传递任务信息
+    auto dialog = new TaskInformationDialog{EasyDownloadManager::getOrNewInstance().getMainWindow()};
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
 }
 
 

@@ -1,7 +1,7 @@
-#ifndef TASKINFORMATIONDIALOG_H
-#define TASKINFORMATIONDIALOG_H
+#pragma once
 
 #include <QDialog>
+
 
 namespace Ui {
 class TaskInformationDialog;
@@ -17,5 +17,3 @@ public:
 private:
     Ui::TaskInformationDialog* ui;
 };
-
-#endif // TASKINFORMATIONDIALOG_H

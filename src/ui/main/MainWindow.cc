@@ -84,7 +84,6 @@ void MainWindow::_buildToolBar() const {
     auto resumeTask = toolBar->addAction("恢复");
     auto stopTask   = toolBar->addAction("停止");
     auto deleteTask = toolBar->addAction("删除");
-    auto clearAll   = toolBar->addAction("清除所有");
 
     // 添加伸缩占位，把后面的动作推到右边 (右对齐)
     auto spacer = new QWidget(toolBar);
@@ -94,10 +93,7 @@ void MainWindow::_buildToolBar() const {
     auto settings = toolBar->addAction("设置");
 
     // 连接信号
-    connect(newTask, &QAction::triggered, this, []() {
-        qDebug() << "[MainWindow] onNewTask";
-        emit EventBus::instance() -> onRequestOpenNewTaskDialog();
-    });
+    connect(newTask, &QAction::triggered, EventBus::instance(), &EventBus::onRequestOpenNewTaskDialog);
     connect(resumeTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onResumeTask";
         // TODO: impl
@@ -110,14 +106,7 @@ void MainWindow::_buildToolBar() const {
         qDebug() << "[MainWindow] onDeleteTask";
         // TODO: impl
     });
-    connect(clearAll, &QAction::triggered, this, []() {
-        qDebug() << "[MainWindow] onClearAll";
-        // TODO: impl
-    });
-    connect(settings, &QAction::triggered, this, []() {
-        qDebug() << "[MainWindow] onSettings";
-        emit EventBus::instance() -> onRequestOpenSettingDialog();
-    });
+    connect(settings, &QAction::triggered, EventBus::instance(), &EventBus::onRequestOpenSettingDialog);
 }
 void MainWindow::_buildFileTree() {
     auto tree = ui_->fileTree_;
@@ -195,7 +184,7 @@ void MainWindow::_buildTaskList() {
     // 双击打开任务信息窗口
     connect(list, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
         Q_UNUSED(column);
-        // TODO: 调用打开任务信息窗口
+        emit EventBus::instance() -> onRequestOpenTaskInfoDialog(row);
     });
 
     // 自动设置首列的文件 Icon

@@ -16,9 +16,10 @@ public:
     static SignalHandler* instance();
 
 public slots:
-    void handleRequestOpenNewTaskDialog(QWidget* parent) const;
+    void handleRequestOpenNewTaskDialog(bool checked = false) const;
     void handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const;
-    void handleRequestOpenSettingDialog() const;
+    void handleRequestOpenSettingDialog(bool checked = false) const;
+    void handleRequestOpenTaskInfoDialog(int id) const;
 };
 
 } // namespace edm
