@@ -19,6 +19,9 @@
      <property name="orientation">
       <enum>Qt::Orientation::Horizontal</enum>
      </property>
+     <property name="opaqueResize">
+      <bool>false</bool>
+     </property>
      <widget class="QLabel" name="fileIcon_">
       <property name="text">
        <string>ICON</string>

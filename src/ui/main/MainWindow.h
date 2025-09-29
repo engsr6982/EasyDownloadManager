@@ -32,6 +32,8 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
 
+    void onRequestOpenTaskInfoDialog(int row);
+
 private:
     void _setupLayout();
     void _buildToolBar() const;

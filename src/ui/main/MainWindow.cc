@@ -51,7 +51,9 @@ void MainWindow::insertTask(TaskModel const& task) {
     table->insertRow(row);
 
     // "文件", "大小", "状态", "带宽", "剩余时间", "最后尝试"
-    table->setItem(row, 0, new QTableWidgetItem(string_utils::string2qstring(task.fileName)));
+    auto first = new QTableWidgetItem(string_utils::string2qstring(task.fileName));
+    first->setData(Qt::UserRole, {task.id});
+    table->setItem(row, 0, first);
     table->setItem(row, 1, new QTableWidgetItem(string_utils::string2qstring(utils::FileSize2String(task.fileSize))));
     table->setItem(row, 2, new QTableWidgetItem(string_utils::stringview2qstring(magic_enum::enum_name(task.state))));
     table->setItem(row, 3, new QTableWidgetItem(""));
@@ -66,6 +68,14 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     } else {
         QMainWindow::closeEvent(event);
     }
+}
+void MainWindow::onRequestOpenTaskInfoDialog(int row) {
+    auto col = ui_->taskList_->item(row, 0);
+    if (!col) {
+        return;
+    }
+    int  id = col->data(Qt::UserRole).toInt();
+    emit EventBus::instance() -> onRequestOpenTaskInfoDialog(id);
 }
 
 
@@ -184,7 +194,7 @@ void MainWindow::_buildTaskList() {
     // 双击打开任务信息窗口
     connect(list, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
         Q_UNUSED(column);
-        emit EventBus::instance() -> onRequestOpenTaskInfoDialog(row);
+        onRequestOpenTaskInfoDialog(row);
     });
 
     // 自动设置首列的文件 Icon
@@ -222,9 +232,7 @@ void MainWindow::_buildTaskList() {
             // TODO: impl
         });
         menu.addSeparator();
-        menu.addAction("属性", [this, list]() {
-            // TODO: impl
-        });
+        menu.addAction("属性", [this, list]() { onRequestOpenTaskInfoDialog(list->currentRow()); });
 
         menu.exec(list->viewport()->mapToGlobal(pos));
     });

@@ -1,5 +1,7 @@
 #include "TaskConfigure.h"
 
+#include "config/EdmGlobalConfig.h"
+
 namespace edm::downloader {
 
 
@@ -30,6 +32,20 @@ void SCurl::cleanup() {
     headers_ = nullptr;
 }
 
+
+TaskConfigure::TaskConfigure(TaskModel const& model) noexcept {
+    url_            = model.url;
+    saveDir_        = model.saveDir;
+    tempDir_        = model.tempDir;
+    threadCount_    = model.threadCount;
+    bandWidthLimit_ = model.bandWidthLimit;
+    userAgent_      = model.userAgent;
+    // origin_ = ; // TODO: impl
+    // referer_ = ;
+    // cookie_ = ;
+    mimeType_ = model.mimeType;
+    proxyUrl_ = proxy_utils::toProxyUrl(EdmGlobalConfig::instance().getProxyConfig());
+}
 
 SCurl TaskConfigure::newCurl() const {
     CURL*       curl    = curl_easy_init();

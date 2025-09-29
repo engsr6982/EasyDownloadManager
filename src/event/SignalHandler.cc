@@ -79,8 +79,7 @@ void SignalHandler::handleRequestOpenTaskInfoDialog(int id) const {
     if (!info) {
         return;
     }
-    // TODO: 传递任务信息
-    auto dialog = new TaskInformationDialog{EasyDownloadManager::getOrNewInstance().getMainWindow()};
+    auto dialog = new TaskInformationDialog{*info, EasyDownloadManager::getOrNewInstance().getMainWindow()};
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
 }

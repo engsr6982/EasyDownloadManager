@@ -46,6 +46,9 @@ struct TaskConfigure {
     RequestType                requestType_{RequestType::GET};
     std::optional<std::string> postBody_;
 
+    TaskConfigure() = default;
+    explicit TaskConfigure(TaskModel const& model) noexcept;
+
     [[nodiscard]] SCurl newCurl() const;
 };
 
