@@ -1,69 +1,75 @@
 #include "ThreadProgressBar.h"
-#include <QMutexLocker>
+
 #include <QPainter>
+#include <QTimer>
 
 namespace edm::components {
 
-ThreadProgressBar::ThreadProgressBar(QWidget* parent) : QWidget(parent) { setMinimumHeight(20); }
+ThreadProgressBar::ThreadProgressBar(QWidget* parent) : QWidget(parent), updateTimer_(new QTimer(this)) {
+    setMinimumHeight(20);
 
-ThreadProgressBar::~ThreadProgressBar() = default;
-
-void ThreadProgressBar::setRanges(QVector<Range> const& ranges) {
-    QMutexLocker locker(&mutex_);
-    ranges_ = ranges;
-    update();
+    updateTimer_->setInterval(33);
+    connect(updateTimer_, &QTimer::timeout, this, [this]() {
+        this->update(); // 仅触发重绘，不阻塞
+    });
 }
 
-void ThreadProgressBar::updateThread(int index, qint64 downloaded) {
-    QMutexLocker locker(&mutex_);
-    if (index >= 0 && index < ranges_.size()) {
-        ranges_[index].downloaded = downloaded;
-        update();
+ThreadProgressBar::~ThreadProgressBar() { stopUpdating(); }
+
+void ThreadProgressBar::setRanges(std::vector<std::shared_ptr<DownloadRange>> const& ranges) {
+    ranges_ = ranges;
+    update(); // 初始化时重绘一次
+}
+
+void ThreadProgressBar::startUpdating() {
+    if (!updateTimer_->isActive()) {
+        updateTimer_->start();
     }
 }
-
-void ThreadProgressBar::addThread(Range const& range) {
-    QMutexLocker locker(&mutex_);
-    ranges_.append(range);
-    update();
+void ThreadProgressBar::stopUpdating() {
+    if (updateTimer_->isActive()) {
+        updateTimer_->stop();
+    }
+    update(); // 停止时确保画出最终状态
 }
 
 void ThreadProgressBar::paintEvent(QPaintEvent* paintEvent) {
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
 
-    QMutexLocker locker(&mutex_);
+    // 绘制背景
+    QRect rect = this->rect();
+    painter.fillRect(rect, QColor(240, 240, 240));
 
-    if (ranges_.isEmpty()) return;
+    if (ranges_.empty()) return;
 
-    int w = width();
-    int h = height();
+    qint64 totalStart = ranges_.front()->start;
+    qint64 totalEnd   = ranges_.back()->end;
+    qint64 totalSize  = totalEnd - totalStart;
 
-    // 计算总范围
-    qint64 totalStart = ranges_.first().start;
-    qint64 totalEnd   = ranges_.first().end;
+    // 防止除以 0 的致命错误
+    if (totalSize <= 0) return;
+
+    int w = rect.width();
+    int h = rect.height();
+
+    // 绘制每个线程的进度块
+    painter.setPen(Qt::NoPen);
     for (const auto& r : ranges_) {
-        if (r.start < totalStart) totalStart = r.start;
-        if (r.end > totalEnd) totalEnd = r.end;
+        // 原子读取已下载量
+        qint64 downloaded = r->downloaded.load(std::memory_order_relaxed);
+
+        // 计算绘制坐标
+        double xStart = double(r->start - totalStart) / totalSize * w;
+        double width  = double(downloaded) / totalSize * w;
+
+        QRectF blockRect(xStart, 0, width, h);
+        painter.fillRect(blockRect, QColor(100, 149, 237)); // 柔和的蓝色
     }
-    qint64 totalSize = totalEnd - totalStart;
 
-    for (const auto& r : ranges_) {
-        double xStart = double(r.start - totalStart) / totalSize * w;
-        double xEnd   = double(r.end - totalStart) / totalSize * w;
-
-        // 绘制背景条
-        QRectF bgRect(xStart, 0, xEnd - xStart, h);
-        p.setBrush(QColor(200, 200, 200));
-        p.setPen(Qt::NoPen);
-        p.drawRect(bgRect);
-
-        // 绘制下载进度
-        double progressRatio = (r.end > r.start) ? double(r.downloaded) / (r.end - r.start) : 0.0;
-        QRectF fgRect(xStart, 0, (xEnd - xStart) * progressRatio, h);
-        p.setBrush(QColor(100, 200, 100));
-        p.drawRect(fgRect);
-    }
+    // 绘制边框
+    painter.setPen(QPen(Qt::gray, 1));
+    painter.drawRect(0, 0, w - 1, h - 1);
 }
 
 
