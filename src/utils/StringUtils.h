@@ -11,10 +11,6 @@ namespace edm::string_utils {
 // ------------------------- QString -> 其他 -------------------------
 inline std::string qstring2string(QString const& qs) { return qs.toStdString(); }
 
-inline std::string_view qstring2stringview(QString const& qs) { return std::string_view(qs.toStdString()); }
-
-inline char const* qstring2cstr(QString const& qs) { return qs.toStdString().c_str(); }
-
 inline char* qstring2char(QString& qs) {
     return qs.toStdString().data(); // 非常量版本
 }
