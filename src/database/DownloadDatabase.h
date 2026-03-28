@@ -2,6 +2,7 @@
 #include <functional>
 #include <sqlitecpp/SQLiteCpp.h>
 
+#include <mutex>
 
 namespace edm {
 
@@ -10,6 +11,7 @@ struct TaskHeaderModel;
 
 class DownloadDatabase {
     std::unique_ptr<SQLite::Database> db_{nullptr};
+    mutable std::mutex                mutex_{};
 
     void initTables() const;
 
