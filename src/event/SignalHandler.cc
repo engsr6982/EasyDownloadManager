@@ -1,6 +1,6 @@
 #include "SignalHandler.h"
 
-#include "EasyDownloadManager.h"
+#include "EdmApplication.h"
 #include "EventBus.h"
 #include "config/EdmGlobalConfig.h"
 #include "database/DownloadDatabase.h"
@@ -49,7 +49,7 @@ SignalHandler::~SignalHandler() = default;
 SignalHandler* SignalHandler::instance() { return instance_; }
 
 void SignalHandler::handleRequestOpenNewTaskDialog(bool /*checked*/) const {
-    auto dialog = new NewTaskDialog(EasyDownloadManager::getOrNewInstance().getMainWindow());
+    auto dialog = new NewTaskDialog(EdmApplication::getInstance().getMainWindow());
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
 }
@@ -69,17 +69,18 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     if (auto proxy = cfg.getProxyConfig(); useProxy && !proxy.isNone()) {
         configure.proxyUrl_ = proxy_utils::toProxyUrl(proxy);
     }
+    // todo: create task
 }
 void SignalHandler::handleRequestOpenSettingDialog(bool checked) const {
-    EasyDownloadManager::getOrNewInstance().tryShowSettingDialog();
+    EdmApplication::getInstance().tryShowSettingDialog();
 }
 void SignalHandler::handleRequestOpenTaskInfoDialog(int id) const {
-    auto db   = EasyDownloadManager::getOrNewInstance().getDatabase();
+    auto db   = EdmApplication::getInstance().getDatabase();
     auto info = db->getTaskById(id);
     if (!info) {
         return;
     }
-    auto dialog = new TaskInformationDialog{*info, EasyDownloadManager::getOrNewInstance().getMainWindow()};
+    auto dialog = new TaskInformationDialog{*info, EdmApplication::getInstance().getMainWindow()};
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
 }

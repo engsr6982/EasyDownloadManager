@@ -1,4 +1,4 @@
-#include "EasyDownloadManager.h"
+#include "EdmApplication.h"
 #include "ui/main/MainWindow.h"
 
 #include <QApplication>
@@ -15,10 +15,14 @@ int main(int argc, char* argv[]) {
     format.setSwapBehavior(QSurfaceFormat::DoubleBuffer); // 双缓冲
     QSurfaceFormat::setDefaultFormat(format);             // 全局默认格式
 
-    QApplication app(argc, argv);
+    QApplication qtApp(argc, argv);
 
-    edm::EasyDownloadManager::getOrNewInstance().getMainWindow()->show();
-    int code = app.exec();
-    edm::EasyDownloadManager::tryDestroyInstance();
+    auto& application = edm::EdmApplication::getInstance();
+    application.initApp();
+    application.getMainWindow()->show();
+
+    int code = qtApp.exec();
+
+    application.destroyApp();
     return code;
 }

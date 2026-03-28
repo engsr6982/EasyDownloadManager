@@ -1,6 +1,6 @@
 #include "EdmGlobalConfig.h"
 
-#include "EasyDownloadManager.h"
+#include "EdmApplication.h"
 #include "ui/main/MainWindow.h"
 #include "utils/StringUtils.h"
 

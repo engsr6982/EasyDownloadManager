@@ -1,7 +1,7 @@
 #include "MainWindow.h"
 #include "../../event/EventBus.h"
 #include "./ui_MainWindow.h"
-#include "EasyDownloadManager.h"
+#include "EdmApplication.h"
 #include "database/DownloadDatabase.h"
 #include "model/TaskModel.h"
 #include "utils/IconUtils.h"
@@ -34,7 +34,7 @@ void MainWindow::hideFileTree() const { ui_->fileTree_->setVisible(false); }
 void MainWindow::showFileTree() const { ui_->fileTree_->setVisible(true); }
 
 void MainWindow::initDataFromDB() {
-    auto db = EasyDownloadManager::getOrNewInstance().getDatabase();
+    auto db = EdmApplication::getInstance().getDatabase();
     assert(db != nullptr);
     ui_->taskList_->setUpdatesEnabled(false);
     db->forEachTask([this](TaskModel const& task) {
@@ -62,7 +62,7 @@ void MainWindow::insertTask(TaskModel const& task) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    if (auto tray = EasyDownloadManager::getOrNewInstance().getTrayIcon(); tray && tray->isVisible()) {
+    if (auto tray = EdmApplication::getInstance().getTrayIcon(); tray && tray->isVisible()) {
         hide();
         event->ignore();
     } else {

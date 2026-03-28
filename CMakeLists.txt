@@ -67,8 +67,8 @@ set(PROJECT_SOURCES
         src/utils/Utils.h
         src/Dispatcher.cc
         src/Dispatcher.h
-        src/EasyDownloadManager.cc
-        src/EasyDownloadManager.h
+        src/EdmApplication.cc
+        src/EdmApplication.h
         src/main.cpp
 )
 
