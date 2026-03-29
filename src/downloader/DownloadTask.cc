@@ -6,7 +6,7 @@
 namespace edm ::downloader {
 
 
-DownloadTask::DownloadTask(TaskConfigure configure) : configure_(std::move(configure)), downloader_(configure_) {
+DownloadTask::DownloadTask(TaskConfigure configure) : configure_(std::move(configure)) {
     std::unique_lock<std::shared_mutex> lock{mutex_}; // 占用锁进行初始化任务
     state_ = TaskState::Pending;
 }

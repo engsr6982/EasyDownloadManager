@@ -1,5 +1,4 @@
 #pragma once
-#include "MultiThreadDownloader.h"
 #include "TaskConfigure.h"
 
 #include <memory>
@@ -16,7 +15,6 @@ class TaskMetaInfoFetcher;
 class DownloadTask final {
     TaskState                  state_{TaskState::Pending};
     TaskConfigure              configure_;
-    MultiThreadDownloader      downloader_;
     mutable std::shared_mutex  mutex_; // 读写锁
     std::optional<std::string> lastError_{std::nullopt};
 

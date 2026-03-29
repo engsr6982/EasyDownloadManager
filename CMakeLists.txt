@@ -30,8 +30,6 @@ set(PROJECT_SOURCES
         src/downloader/DownloadTask.h
         src/downloader/DownloadWorker.cc
         src/downloader/DownloadWorker.h
-        src/downloader/MultiThreadDownloader.cc
-        src/downloader/MultiThreadDownloader.h
         src/downloader/TaskConfigure.h
         src/downloader/TaskConfigure.cc
         src/downloader/TaskMetaInfoFetcher.cc
