@@ -17,6 +17,13 @@ public:
     ~TaskMetaInfoFetcher() = default;
 
     /**
+     * 异步获取任务元信息
+     * @param configure 任务配置
+     * @note 任务完成后发出 `onTaskMetaInfoFetched` 信号
+     */
+    static void fetchAsync(TaskConfigure const& configure);
+
+    /**
      * 获取文件大小
      * @return 文件大小，单位为字节(byte), -1 表示获取失败
      */

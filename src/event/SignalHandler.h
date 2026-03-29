@@ -2,6 +2,7 @@
 #include <qobject.h>
 
 namespace edm {
+struct MetaInfoResultEvent;
 
 class SignalHandler : public QObject {
     Q_OBJECT;
@@ -20,6 +21,7 @@ public slots:
     void handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const;
     void handleRequestOpenSettingDialog(bool checked = false) const;
     void handleRequestOpenTaskInfoDialog(int id) const;
+    void handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& result) const;
 };
 
 } // namespace edm

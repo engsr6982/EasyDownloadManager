@@ -1,8 +1,12 @@
 #include "TaskMetaInfoFetcher.h"
 
 #include "TaskConfigure.h"
+#include "event/EventBus.h"
+#include "event/Events.h"
 #include "utils/Utils.h"
 
+#include <QRunnable>
+#include <QThreadPool>
 #include <array>
 #include <format>
 #include <qdebug.h>
@@ -10,8 +14,43 @@
 
 namespace edm ::downloader {
 
+class FetchRunnable : public QRunnable {
+    TaskConfigure config_;
+
+public:
+    explicit FetchRunnable(TaskConfigure const& configure) : config_(configure) {}
+
+    void run() override {
+        MetaInfoResultEvent result;
+
+        result.url     = QString::fromStdString(config_.url_);
+        result.success = false;
+
+        try {
+            TaskMetaInfoFetcher fetcher(config_);
+
+            auto size = fetcher.getFileSize();
+            if (size >= 0) {
+                result.success      = true;
+                result.fileSize     = size;
+                result.supportRange = fetcher.isSupportRange();
+            } else {
+                result.errorMessage = "Failed to fetch file size. CURL code error.";
+            }
+        } catch (const std::exception& e) {
+            result.errorMessage = e.what();
+        }
+
+        // 异步请求完成，通过 Qt 信号槽机制安全扔回主线程
+        emit EventBus::instance() -> onTaskMetaInfoFetched(result);
+    }
+};
+
 TaskMetaInfoFetcher::TaskMetaInfoFetcher(TaskConfigure& configure) : configure_(configure) {}
 
+void TaskMetaInfoFetcher::fetchAsync(TaskConfigure const& configure) {
+    QThreadPool::globalInstance()->start(new FetchRunnable(configure));
+}
 
 FileSize TaskMetaInfoFetcher::getFileSize() const {
     auto scurl = configure_.newCurl();

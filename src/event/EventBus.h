@@ -3,6 +3,8 @@
 
 namespace edm {
 
+struct MetaInfoResultEvent;
+
 class EventBus : public QObject {
     Q_OBJECT
 
@@ -34,6 +36,12 @@ signals:
     void onRequestOpenSettingDialog(bool checked = false) const; // 请求打开设置对话框
 
     void onRequestOpenTaskInfoDialog(int id) const; // 请求打开任务信息对话框
+
+    /**
+     * 任务元信息获取完毕
+     * @param result 结果
+     */
+    void onTaskMetaInfoFetched(edm::MetaInfoResultEvent const& result) const;
 };
 
 } // namespace edm

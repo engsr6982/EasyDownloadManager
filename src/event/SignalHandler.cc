@@ -2,6 +2,7 @@
 
 #include "EdmApplication.h"
 #include "EventBus.h"
+#include "Events.h"
 #include "config/EdmGlobalConfig.h"
 #include "database/DownloadDatabase.h"
 #include "downloader/TaskConfigure.h"
@@ -19,28 +20,18 @@ SignalHandler* SignalHandler::instance_ = new SignalHandler{};
 
 
 SignalHandler::SignalHandler() {
-    connect(
-        EventBus::instance(),
-        &EventBus::onRequestOpenNewTaskDialog,
-        this,
-        &SignalHandler::handleRequestOpenNewTaskDialog
-    );
+    auto bus = EventBus::instance();
 
-    connect(EventBus::instance(), &EventBus::onRequestCreateTask, this, &SignalHandler::handleRequestCreateTask);
+    connect(bus, &EventBus::onRequestOpenNewTaskDialog, this, &SignalHandler::handleRequestOpenNewTaskDialog);
 
-    connect(
-        EventBus::instance(),
-        &EventBus::onRequestOpenSettingDialog,
-        this,
-        &SignalHandler::handleRequestOpenSettingDialog
-    );
+    connect(bus, &EventBus::onRequestCreateTask, this, &SignalHandler::handleRequestCreateTask);
 
-    connect(
-        EventBus::instance(),
-        &EventBus::onRequestOpenTaskInfoDialog,
-        this,
-        &SignalHandler::handleRequestOpenTaskInfoDialog
-    );
+    connect(bus, &EventBus::onRequestOpenSettingDialog, this, &SignalHandler::handleRequestOpenSettingDialog);
+
+    connect(bus, &EventBus::onRequestOpenTaskInfoDialog, this, &SignalHandler::handleRequestOpenTaskInfoDialog);
+
+    qRegisterMetaType<edm::MetaInfoResultEvent>("edm::MetaInfoResultEvent");
+    connect(bus, &EventBus::onTaskMetaInfoFetched, this, &SignalHandler::handleTaskMetaInfoFetched);
 }
 
 
@@ -55,7 +46,8 @@ void SignalHandler::handleRequestOpenNewTaskDialog(bool /*checked*/) const {
 }
 
 void SignalHandler::handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const {
-    qDebug() << "SignalHandler::handleRequestCreateTask" << url << saveDir << useProxy;
+    qDebug() << "SignalHandler::handleRequestCreateTask: "
+             << fmt::format("url: {}, saveDir: {}, useProxy: {}", url.toStdString(), saveDir.toStdString(), useProxy);
 
     downloader::TaskConfigure configure;
     configure.url_     = string_utils::qstring2string(url);
@@ -69,11 +61,14 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     if (auto proxy = cfg.getProxyConfig(); useProxy && !proxy.isNone()) {
         configure.proxyUrl_ = proxy_utils::toProxyUrl(proxy);
     }
-    // todo: create task
+
+    // 发起任务信息获取异步任务, 下游组件创建下载任务
+    downloader::TaskMetaInfoFetcher::fetchAsync(configure);
 }
 void SignalHandler::handleRequestOpenSettingDialog(bool checked) const {
     EdmApplication::getInstance().tryShowSettingDialog();
 }
+
 void SignalHandler::handleRequestOpenTaskInfoDialog(int id) const {
     auto db   = EdmApplication::getInstance().getDatabase();
     auto info = db->getTaskById(id);
@@ -83,6 +78,13 @@ void SignalHandler::handleRequestOpenTaskInfoDialog(int id) const {
     auto dialog = new TaskInformationDialog{*info, EdmApplication::getInstance().getMainWindow()};
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
+}
+
+void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& result) const {
+    qDebug() << "SignalHandler::handleTaskMetaInfoFetched: " << result.toDebugString();
+    // TODO: 获取到文件信息后，正式构造 TaskModel
+    // EdmApplication::getInstance().getDatabase()->insertTask(model);
+    // 将任务丢给 Dispatcher 去实例化 DownloadTask 并执行
 }
 
 
