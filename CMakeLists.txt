@@ -16,6 +16,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(magic_enum CONFIG REQUIRED)
 find_package(SQLiteCpp REQUIRED)
 find_package(CURL REQUIRED)
+find_package(fmt REQUIRED)
 
 # --- 源文件列表 ---
 set(PROJECT_SOURCES
@@ -70,6 +71,7 @@ set(PROJECT_SOURCES
         src/EdmApplication.cc
         src/EdmApplication.h
         src/main.cpp
+        src/event/Events.h
 )
 
 # --- 创建目标 ---
@@ -107,6 +109,7 @@ target_link_libraries(EasyDownloadManager PRIVATE
         magic_enum::magic_enum
         SQLiteCpp
         CURL::libcurl
+        fmt::fmt
 )
 
 # --- 平台特定设置 ---

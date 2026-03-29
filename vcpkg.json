@@ -5,6 +5,7 @@
   "dependencies": [
     "magic-enum",
     "sqlitecpp",
+    "fmt",
     {
       "name": "curl",
       "default-features": false,
@@ -22,6 +23,10 @@
     {
       "name": "sqlitecpp",
       "version-string": "3.3.3"
+    },
+    {
+      "name": "fmt",
+      "version-string": "12.1.0"
     }
   ]
 }
