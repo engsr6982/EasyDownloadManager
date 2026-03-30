@@ -16,7 +16,8 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(magic_enum CONFIG REQUIRED)
 find_package(SQLiteCpp REQUIRED)
 find_package(CURL REQUIRED)
-find_package(fmt REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(expected-lite CONFIG REQUIRED)
 
 # --- 源文件列表 ---
 set(PROJECT_SOURCES
@@ -70,6 +71,7 @@ set(PROJECT_SOURCES
         src/EdmApplication.h
         src/main.cpp
         src/event/Events.h
+        src/expected.h
 )
 
 # --- 创建目标 ---

@@ -6,6 +6,7 @@
     "magic-enum",
     "sqlitecpp",
     "fmt",
+    "expected-lite",
     {
       "name": "curl",
       "default-features": false,
@@ -27,6 +28,10 @@
     {
       "name": "fmt",
       "version-string": "12.1.0"
+    },
+    {
+      "name": "expected-lite",
+      "version-string": "0.10.0"
     }
   ]
 }
