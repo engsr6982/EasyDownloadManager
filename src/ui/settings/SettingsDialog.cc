@@ -2,7 +2,6 @@
 #include "EdmConfig.h"
 #include "ui_SettingsDialog.h"
 #include "utils/EnumUtils.h"
-#include "utils/StringUtils.h"
 
 #include <magic_enum/magic_enum.hpp>
 #include <qdir.h>
@@ -62,10 +61,10 @@ void SettingsDialog::chooseDir(QLineEdit* input) {
 
 void SettingsDialog::initWidgets() {
     for (auto val : magic_enum::enum_values<AvailableThreads>()) {
-        ui->threadCountComboBox_->addItem(string_utils::string2qstring(std::to_string(static_cast<int>(val))));
+        ui->threadCountComboBox_->addItem(QString::fromStdString(std::to_string(static_cast<int>(val))));
     }
     for (auto type : magic_enum::enum_names<ProxyType>()) {
-        ui->proxyTypeComboBox_->addItem(string_utils::stringview2qstring(type));
+        ui->proxyTypeComboBox_->addItem(QString::fromStdString(type.data()));
     }
     ui->bandWidthLimitInput_->setValidator(new QIntValidator(0, INT64_MAX, this));
     ui->proxyHostInput_->setText(GlobalDefaults::kDefaultProxyHost);
@@ -80,7 +79,7 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
     ui->threadCountComboBox_->setCurrentIndex(
         enum_utils::getIndexFromRawValue<AvailableThreads>(config.getThreadCount()).value_or(0)
     );
-    ui->bandWidthLimitInput_->setText(string_utils::string2qstring(std::to_string(config.getBandwidthLimit())));
+    ui->bandWidthLimitInput_->setText(QString::fromStdString(std::to_string(config.getBandwidthLimit())));
     ui->userAgentInput_->setText(config.getUserAgent());
     ui->saveDirInput_->setText(config.getSaveDir());
     ui->tempDirInput_->setText(config.getTempDir());
@@ -110,7 +109,7 @@ void SettingsDialog::saveWidgetStateToConfig() {
     config.setThreadCount(enum_utils::getRawValueFromIndex<AvailableThreads>(ui->threadCountComboBox_->currentIndex()));
 
     {
-        auto limit = std::stoi(string_utils::qstring2string(ui->bandWidthLimitInput_->text()));
+        auto limit = std::stoi(ui->bandWidthLimitInput_->text().toStdString());
         qDebug() << "[SettingsDialog] saving bandwidth limit (stoi):" << limit;
         config.setBandwidthLimit(limit);
     }

@@ -10,7 +10,6 @@
 #include "ui/main/MainWindow.h"
 #include "ui/new_task/NewTaskDialog.h"
 #include "ui/task_information/TaskInformationDialog.h"
-#include "utils/StringUtils.h"
 
 #include "fmt/format.h"
 

@@ -5,7 +5,6 @@
 #include "model/TaskModel.h"
 #include "ui_MainWindow.h"
 #include "utils/IconUtils.h"
-#include "utils/StringUtils.h"
 #include "utils/Utils.h"
 
 #include <QCloseEvent>
@@ -51,14 +50,14 @@ void MainWindow::insertTask(TaskModel const& task) {
     table->insertRow(row);
 
     // "文件", "大小", "状态", "带宽", "剩余时间", "最后尝试"
-    auto first = new QTableWidgetItem(string_utils::string2qstring(task.fileName));
+    auto first = new QTableWidgetItem(QString::fromStdString(task.fileName));
     first->setData(Qt::UserRole, {task.id});
     table->setItem(row, 0, first);
-    table->setItem(row, 1, new QTableWidgetItem(string_utils::string2qstring(utils::FileSize2String(task.fileSize))));
-    table->setItem(row, 2, new QTableWidgetItem(string_utils::stringview2qstring(magic_enum::enum_name(task.state))));
+    table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(utils::FileSize2String(task.fileSize))));
+    table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(magic_enum::enum_name(task.state).data())));
     table->setItem(row, 3, new QTableWidgetItem(""));
-    table->setItem(row, 4, new QTableWidgetItem(string_utils::string2qstring(utils::TimeStamp2String(task.firstTry))));
-    table->setItem(row, 5, new QTableWidgetItem(string_utils::string2qstring(utils::TimeStamp2String(task.lastTry))));
+    table->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(utils::TimeStamp2String(task.firstTry))));
+    table->setItem(row, 5, new QTableWidgetItem(QString::fromStdString(utils::TimeStamp2String(task.lastTry))));
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

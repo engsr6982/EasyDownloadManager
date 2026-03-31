@@ -2,7 +2,6 @@
 
 #include "EdmConfig.h"
 #include "model/TaskModel.h"
-#include "utils/StringUtils.h"
 
 #include <random>
 
@@ -11,7 +10,7 @@ namespace edm {
 
 DownloadDatabase::DownloadDatabase() {
     db_ = std::make_unique<SQLite::Database>(
-        string_utils::qstring2string(EdmConfig::getDatabasePath()),
+        EdmConfig::getDatabasePath().toStdString(),
         SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE
     );
     initTables();
@@ -134,7 +133,7 @@ void DownloadDatabase::insertTask(TaskModel& task) {
 }
 
 void DownloadDatabase::insertTaskHeader(TaskHeaderModel const& taskHeader) {
-    std::lock_guard lock(mutex_);
+    std::lock_guard   lock(mutex_);
     SQLite::Statement query(
         *db_,
         R"(
@@ -156,7 +155,7 @@ void DownloadDatabase::insertTaskHeader(TaskHeaderModel const& taskHeader) {
 }
 
 std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
-    std::lock_guard lock(mutex_);
+    std::lock_guard   lock(mutex_);
     SQLite::Statement query(
         *db_,
         R"(
@@ -219,7 +218,7 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
 }
 
 std::optional<TaskHeaderModel> DownloadDatabase::getTaskHeaderById(int id) const {
-    std::lock_guard lock(mutex_);
+    std::lock_guard   lock(mutex_);
     SQLite::Statement query(
         *db_,
         R"(
@@ -249,7 +248,7 @@ std::optional<TaskHeaderModel> DownloadDatabase::getTaskHeaderById(int id) const
 }
 
 void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& callback) const {
-    std::lock_guard lock(mutex_);
+    std::lock_guard   lock(mutex_);
     SQLite::Statement query(
         *db_,
         R"(
@@ -338,8 +337,8 @@ void DownloadDatabase::insertFakeTasks(int count) {
         task.mimeType       = "application/octet-stream";
         task.errorMsg       = "";
         task.postBody       = "";
-        task.saveDir        = string_utils::qstring2string(EdmConfig::getInstance().getSaveDir());
-        task.tempDir        = string_utils::qstring2string(EdmConfig::getInstance().getTempDir());
+        task.saveDir        = EdmConfig::getInstance().getSaveDir().toStdString();
+        task.tempDir        = EdmConfig::getInstance().getTempDir().toStdString();
 
         insertTask(task);
     }

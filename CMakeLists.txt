@@ -61,7 +61,6 @@ set(PROJECT_SOURCES
         src/ui/task_information/TaskInformationDialog.ui
         src/utils/EnumUtils.h
         src/utils/IconUtils.h
-        src/utils/StringUtils.h
         src/utils/Utils.h
         src/Dispatcher.cc
         src/Dispatcher.h

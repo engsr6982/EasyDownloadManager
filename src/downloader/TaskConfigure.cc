@@ -2,7 +2,6 @@
 
 #include "CurlEx.h"
 #include "EdmConfig.h"
-#include "utils/StringUtils.h"
 
 namespace edm::downloader {
 
@@ -68,9 +67,9 @@ TaskConfigure TaskConfigure::fromUrl(std::string const& url, std::string const& 
 
     auto& conf = EdmConfig::getInstance();
 
-    configure.tempDir_        = string_utils::qstring2string(conf.getTempDir());
+    configure.tempDir_        = conf.getTempDir().toStdString();
     configure.threadCount_    = conf.getThreadCount();
-    configure.userAgent_      = string_utils::qstring2string(conf.getUserAgent());
+    configure.userAgent_      = conf.getUserAgent().toStdString();
     configure.bandWidthLimit_ = conf.getBandwidthLimit();
     if (auto proxy = conf.getProxyConfig(); useProxy && !proxy.isNone()) {
         configure.proxyUrl_ = proxy.toProxyUrl();
