@@ -2,7 +2,7 @@
 #include <optional>
 #include <string>
 
-#include "model/Definition.h"
+#include "Global.h"
 
 namespace edm::downloader {
 

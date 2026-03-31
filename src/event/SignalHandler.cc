@@ -1,9 +1,9 @@
 #include "SignalHandler.h"
 
+#include "EdmConfig.h"
 #include "EdmApplication.h"
 #include "EventBus.h"
 #include "Events.h"
-#include "config/EdmGlobalConfig.h"
 #include "database/DownloadDatabase.h"
 #include "downloader/MetaInfoFetcher.h"
 #include "downloader/TaskConfigure.h"
@@ -52,18 +52,7 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     qDebug() << "SignalHandler::handleRequestCreateTask: "
              << fmt::format("url: {}, saveDir: {}, useProxy: {}", url.toStdString(), saveDir.toStdString(), useProxy);
 
-    downloader::TaskConfigure configure;
-    configure.url_     = string_utils::qstring2string(url);
-    configure.saveDir_ = string_utils::qstring2string(saveDir);
-
-    auto& cfg                 = EdmGlobalConfig::instance();
-    configure.tempDir_        = string_utils::qstring2string(cfg.getTempDir());
-    configure.threadCount_    = cfg.getThreadCount();
-    configure.userAgent_      = string_utils::qstring2string(cfg.getUserAgent());
-    configure.bandWidthLimit_ = cfg.getBandwidthLimit();
-    if (auto proxy = cfg.getProxyConfig(); useProxy && !proxy.isNone()) {
-        configure.proxyUrl_ = proxy_utils::toProxyUrl(proxy);
-    }
+    auto configure = downloader::TaskConfigure::fromUrl(url.toStdString(), saveDir.toStdString(), useProxy);
 
     // 发起任务信息获取异步任务, 下游组件创建下载任务
     downloader::MetaInfoFetcher::fetchAsync(configure);
@@ -112,6 +101,25 @@ void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev
     // TODO: 获取到文件信息后，正式构造 TaskModel
     // EdmApplication::getInstance().getDatabase()->insertTask(model);
     // 将任务丢给 Dispatcher 去实例化 DownloadTask 并执行
+
+    // TaskModel model{};
+    // model.url       = string_utils::qstring2string(result.url);
+    // model.fileName  = ...; // TODO: 从 URL 或 Header 解析文件名 (可以写个 Utils)
+    // model.fileSize  = result.fileSize;
+    // model.resumable = result.supportRange ? Resumable::Yes : Resumable::No;
+    // model.state     = TaskState::Pending;
+    // model.firstTry  = std::time(nullptr);
+    // model.lastTry   = model.firstTry;
+    // ... 补全其他目录等信息 ...
+
+    // 存入数据库
+    // EdmApplication::getInstance().getDatabase()->insertTask(model);
+
+    // 通知主窗口插入新行
+    // emit EventBus::instance() -> onTaskAddedToDatabase(model);
+
+    // 通知 Dispatcher 将任务加入调度队列
+    // emit EventBus::instance() -> onRequestDispatchTask(model.id);
 }
 
 

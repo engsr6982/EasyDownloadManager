@@ -1,6 +1,6 @@
 #include "DownloadDatabase.h"
 
-#include "config/EdmGlobalConfig.h"
+#include "EdmConfig.h"
 #include "model/TaskModel.h"
 #include "utils/StringUtils.h"
 
@@ -11,7 +11,7 @@ namespace edm {
 
 DownloadDatabase::DownloadDatabase() {
     db_ = std::make_unique<SQLite::Database>(
-        string_utils::qstring2string(EdmGlobalConfig::getDatabasePath()),
+        string_utils::qstring2string(EdmConfig::getDatabasePath()),
         SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE
     );
     initTables();
@@ -338,8 +338,8 @@ void DownloadDatabase::insertFakeTasks(int count) {
         task.mimeType       = "application/octet-stream";
         task.errorMsg       = "";
         task.postBody       = "";
-        task.saveDir        = string_utils::qstring2string(EdmGlobalConfig::instance().getSaveDir());
-        task.tempDir        = string_utils::qstring2string(EdmGlobalConfig::instance().getTempDir());
+        task.saveDir        = string_utils::qstring2string(EdmConfig::getInstance().getSaveDir());
+        task.tempDir        = string_utils::qstring2string(EdmConfig::getInstance().getTempDir());
 
         insertTask(task);
     }

@@ -1,8 +1,13 @@
 #pragma once
-#include "Definition.h"
-
+#include <cstdint>
 
 namespace edm {
+
+using BandWidthLimit = int64_t; // 带宽限制，单位为 kb/s
+
+using FileSize = int64_t; // 文件大小，单位为 byte
+
+using TimeStamp = int64_t; // 时间戳
 
 enum class AvailableThreads { k4 = 4, k8 = 8, k16 = 16, k32 = 32 };
 

@@ -1,5 +1,5 @@
 #include "NewTaskDialog.h"
-#include "config/EdmGlobalConfig.h"
+#include "EdmConfig.h"
 #include "event/EventBus.h"
 #include "ui_NewTaskDialog.h"
 
@@ -20,10 +20,10 @@ NewTaskDialog::NewTaskDialog(QWidget* parent) : QDialog(parent), ui(new Ui::NewT
         ui->urlInput_->setText(text);
     }
 
-    ui->dirInput_->setText(EdmGlobalConfig::instance().getSaveDir());
+    ui->dirInput_->setText(EdmConfig::getInstance().getSaveDir());
 
     {
-        auto canUse = EdmGlobalConfig::instance().canUseProxy();
+        auto canUse = EdmConfig::getInstance().canUseProxy();
         ui->useProxyCheckBox_->setChecked(canUse);
         ui->useProxyCheckBox_->setEnabled(canUse);
     }

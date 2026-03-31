@@ -37,8 +37,8 @@ public:
 
 MetaInfoFetcher::MetaInfoFetcher(TaskConfigure& configure) : configure_(configure) {}
 
-void MetaInfoFetcher::fetchAsync(TaskConfigure const& configure) {
-    QThreadPool::globalInstance()->start(new FetchRunnable(configure));
+void MetaInfoFetcher::fetchAsync(TaskConfigure configure) {
+    QThreadPool::globalInstance()->start(new FetchRunnable(std::move(configure)));
 }
 
 Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {

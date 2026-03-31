@@ -1,5 +1,5 @@
 #include "SettingsDialog.h"
-#include "config/EdmGlobalConfig.h"
+#include "EdmConfig.h"
 #include "ui_SettingsDialog.h"
 #include "utils/EnumUtils.h"
 #include "utils/StringUtils.h"
@@ -74,7 +74,7 @@ void SettingsDialog::initWidgets() {
 }
 
 void SettingsDialog::syncWidgetStateFromConfig() const {
-    auto const& config = EdmGlobalConfig::instance();
+    auto const& config = EdmConfig::getInstance();
 
     // basic
     ui->threadCountComboBox_->setCurrentIndex(
@@ -100,12 +100,12 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
     ui->proxyPortSpinBox_->setValue(proxy.port_.value());
     ui->proxyUserInput_->setText(proxy.user_.value_or(""));
     ui->proxyPwdInput_->setText(proxy.password_.value_or(""));
-    if (proxy_utils::isSocks4Series(proxy.type_)) {
+    if (proxy.isSocks4Series()) {
         setUserAndPasswordWidgetEnabled(false); // 特殊情况：socks4、socks4a 不支持账户密码
     }
 }
 void SettingsDialog::saveWidgetStateToConfig() {
-    auto& config = EdmGlobalConfig::instance();
+    auto& config = EdmConfig::getInstance();
 
     config.setThreadCount(enum_utils::getRawValueFromIndex<AvailableThreads>(ui->threadCountComboBox_->currentIndex()));
 
@@ -137,7 +137,7 @@ void SettingsDialog::saveWidgetStateToConfig() {
 
     // proxy
     {
-        proxy_utils::ProxyConfig cfg{};
+        ProxyConfig cfg{};
         cfg.type_     = enum_utils::getEnumFromIndex<ProxyType>(ui->proxyTypeComboBox_->currentIndex());
         cfg.host_     = ui->proxyHostInput_->text();
         cfg.port_     = ui->proxyPortSpinBox_->value();
@@ -168,7 +168,7 @@ void SettingsDialog::onProxyTypeSwitched(int index) const {
     auto type = enum_utils::getEnumFromIndex<ProxyType>(index);
     setProxySubWidgetEnabled(type != ProxyType::None);
 
-    if (proxy_utils::isSocks4Series(type)) {
+    if (type == ProxyType::Socks4 || type == ProxyType::Socks4a) {
         setUserAndPasswordWidgetEnabled(false); // 特殊情况：socks4、socks4a 不支持账户密码
     }
 }

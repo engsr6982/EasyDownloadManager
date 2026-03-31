@@ -22,7 +22,7 @@ public:
      * @param configure 任务配置
      * @note 任务完成后发出 `onTaskMetaInfoFetched` 信号
      */
-    static void fetchAsync(TaskConfigure const& configure);
+    static void fetchAsync(TaskConfigure configure);
 
 
     Expected<FetchedMetaInfo> fetchAll() const;

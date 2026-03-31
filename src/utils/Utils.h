@@ -1,5 +1,5 @@
 #pragma once
-#include "model/Definition.h"
+#include "Global.h"
 
 #include <array>
 #include <format>

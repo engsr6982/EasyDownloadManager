@@ -1,22 +1,43 @@
 #pragma once
-#include "utils/ProxyUtils.h"
-
 #include <magic_enum/magic_enum.hpp>
 #include <qsettings.h>
 #include <qtclasshelpermacros.h>
 
+#include "Global.h"
+
 namespace edm {
 
-class EdmGlobalConfig {
+struct ProxyConfig {
+    ProxyType              type_{ProxyType::None};
+    std::optional<QString> host_{std::nullopt};
+    std::optional<int>     port_{std::nullopt};
+    std::optional<QString> user_{std::nullopt};
+    std::optional<QString> password_{std::nullopt};
+
+    inline bool isNone() const noexcept { return type_ == ProxyType::None; }
+    inline bool isHttpSeries() const noexcept { return type_ == ProxyType::Http || type_ == ProxyType::Https; }
+    inline bool isSocks4Series() const noexcept { return type_ == ProxyType::Socks4 || type_ == ProxyType::Socks4a; }
+    inline bool isSocks5Series() const noexcept { return type_ == ProxyType::Socks5 || type_ == ProxyType::Socks5h; }
+
+    /**
+     * 转为代理地址
+     * @note 格式：[protocol://][user[:password]@]host[:port]
+     * @return 代理地址
+     */
+    [[nodiscard]] std::string toProxyUrl() const;
+};
+
+
+class EdmConfig {
     QSettings settings_;
-    explicit EdmGlobalConfig();
+    explicit EdmConfig();
 
 public:
-    ~EdmGlobalConfig();
-    Q_DISABLE_COPY_MOVE(EdmGlobalConfig);
+    ~EdmConfig();
+    Q_DISABLE_COPY_MOVE(EdmConfig);
 
 public:
-    [[nodiscard]] static EdmGlobalConfig& instance();
+    [[nodiscard]] static EdmConfig& getInstance();
 
     // 线程
     int  getThreadCount() const;
@@ -31,9 +52,9 @@ public:
     void    setUserAgent(QString const& userAgent);
 
     // 代理
-    [[nodiscard]] proxy_utils::ProxyConfig getProxyConfig() const;
+    [[nodiscard]] ProxyConfig getProxyConfig() const;
 
-    void setProxyConfig(proxy_utils::ProxyConfig const& config);
+    void setProxyConfig(ProxyConfig const& config);
 
     inline bool canUseProxy() const { return getProxyConfig().type_ != ProxyType::None; }
 

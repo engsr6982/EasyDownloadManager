@@ -23,8 +23,8 @@ find_package(expected-lite CONFIG REQUIRED)
 set(PROJECT_SOURCES
         src/components/ThreadProgressBar.cc
         src/components/ThreadProgressBar.h
-        src/config/EdmGlobalConfig.cc
-        src/config/EdmGlobalConfig.h
+        src/EdmConfig.cc
+        src/EdmConfig.h
         src/database/DownloadDatabase.cc
         src/database/DownloadDatabase.h
         src/downloader/DownloadTask.cc
@@ -38,8 +38,7 @@ set(PROJECT_SOURCES
         src/event/EventBus.h
         src/event/SignalHandler.cc
         src/event/SignalHandler.h
-        src/model/Definition.h
-        src/model/GlobalDefaults.h
+        src/Global.h
         src/model/TaskModel.h
         src/resources/Resources.qrc
         src/ui/main/MainWindow.cc
@@ -62,7 +61,6 @@ set(PROJECT_SOURCES
         src/ui/task_information/TaskInformationDialog.ui
         src/utils/EnumUtils.h
         src/utils/IconUtils.h
-        src/utils/ProxyUtils.h
         src/utils/StringUtils.h
         src/utils/Utils.h
         src/Dispatcher.cc

@@ -1,7 +1,8 @@
 #include "TaskConfigure.h"
 
 #include "CurlEx.h"
-#include "config/EdmGlobalConfig.h"
+#include "EdmConfig.h"
+#include "utils/StringUtils.h"
 
 namespace edm::downloader {
 
@@ -17,7 +18,7 @@ TaskConfigure::TaskConfigure(TaskModel const& model) noexcept {
     // referer_ = ;
     // cookie_ = ;
     mimeType_ = model.mimeType;
-    proxyUrl_ = proxy_utils::toProxyUrl(EdmGlobalConfig::instance().getProxyConfig());
+    proxyUrl_ = EdmConfig::getInstance().getProxyConfig().toProxyUrl();
 }
 
 Expected<CurlEx> TaskConfigure::newCurl() const {
@@ -58,6 +59,24 @@ Expected<CurlEx> TaskConfigure::newCurl() const {
 
     if (!curl.status()) return makeStringError(curl.status().error().message());
     return curl;
+}
+
+TaskConfigure TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, bool useProxy) {
+    TaskConfigure configure;
+    configure.url_     = url;
+    configure.saveDir_ = saveDir;
+
+    auto& conf = EdmConfig::getInstance();
+
+    configure.tempDir_        = string_utils::qstring2string(conf.getTempDir());
+    configure.threadCount_    = conf.getThreadCount();
+    configure.userAgent_      = string_utils::qstring2string(conf.getUserAgent());
+    configure.bandWidthLimit_ = conf.getBandwidthLimit();
+    if (auto proxy = conf.getProxyConfig(); useProxy && !proxy.isNone()) {
+        configure.proxyUrl_ = proxy.toProxyUrl();
+    }
+
+    return configure;
 }
 
 } // namespace edm::downloader

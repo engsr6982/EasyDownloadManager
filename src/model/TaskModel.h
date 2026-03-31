@@ -1,5 +1,5 @@
 #pragma once
-#include "Definition.h"
+#include "Global.h"
 
 #include <string>
 

@@ -29,6 +29,8 @@ struct TaskConfigure {
     explicit TaskConfigure(TaskModel const& model) noexcept;
 
     [[nodiscard]] Expected<CurlEx> newCurl() const;
+
+    [[nodiscard]] static TaskConfigure fromUrl(std::string const& url, std::string const& saveDir, bool useProxy);
 };
 
 } // namespace edm::downloader

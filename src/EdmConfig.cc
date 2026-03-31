@@ -1,8 +1,4 @@
-#include "EdmGlobalConfig.h"
-
-#include "EdmApplication.h"
-#include "ui/main/MainWindow.h"
-#include "utils/StringUtils.h"
+#include "EdmConfig.h"
 
 #include <qdir.h>
 #include <qmessagebox.h>
@@ -12,12 +8,67 @@
 
 namespace edm {
 
-EdmGlobalConfig::EdmGlobalConfig() : settings_{"engsr6982", "edm"} {}
+std::string ProxyConfig::toProxyUrl() const {
+    if (isNone()) return {};
 
-EdmGlobalConfig::~EdmGlobalConfig() = default;
+    std::ostringstream oss;
 
-EdmGlobalConfig& EdmGlobalConfig::instance() {
-    static EdmGlobalConfig instance_;
+    // 1. protocol
+    switch (type_) {
+    case ProxyType::Http:
+        oss << "http://";
+        break;
+    case ProxyType::Https:
+        oss << "https://";
+        break;
+    case ProxyType::Socks4:
+        oss << "socks4://";
+        break;
+    case ProxyType::Socks4a:
+        oss << "socks4a://";
+        break;
+    case ProxyType::Socks5:
+        oss << "socks5://";
+        break;
+    case ProxyType::Socks5h:
+        oss << "socks5h://";
+        break;
+    default:
+        return {};
+    }
+
+    // 2. user/password
+    if (user_ && !user_->isEmpty()) {
+        oss << user_->toStdString();
+        if (isSocks5Series() || isHttpSeries()) {
+            if (password_ && !password_->isEmpty()) {
+                oss << ":" << password_->toStdString();
+            }
+        }
+        oss << "@";
+    }
+
+    // 3. host
+    if (host_ && !host_->isEmpty()) {
+        oss << host_->toStdString();
+    } else {
+        return {};
+    }
+
+    // 4. port
+    if (port_ && *port_ > 0) {
+        oss << ":" << *port_;
+    }
+    return oss.str();
+}
+
+
+EdmConfig::EdmConfig() : settings_{"engsr6982", "edm"} {}
+
+EdmConfig::~EdmConfig() = default;
+
+EdmConfig& EdmConfig::getInstance() {
+    static EdmConfig instance_;
     return instance_;
 }
 
@@ -35,35 +86,35 @@ constexpr auto kProxyUser      = "proxy/user";                // string
 constexpr auto kProxyPassword  = "proxy/password";            // string
 
 
-int EdmGlobalConfig::getThreadCount() const {
+int EdmConfig::getThreadCount() const {
     return settings_.value(kThreadCount, static_cast<int>(GlobalDefaults::kDefaultThreadCount)).toInt();
 }
 
-void EdmGlobalConfig::setThreadCount(int count) {
+void EdmConfig::setThreadCount(int count) {
     settings_.setValue(kThreadCount, count);
     settings_.sync();
 }
 
-BandWidthLimit EdmGlobalConfig::getBandwidthLimit() const {
+BandWidthLimit EdmConfig::getBandwidthLimit() const {
     return settings_.value(kBandwidthLimit, GlobalDefaults::kDefaultBandwidthLimit).toInt();
 }
 
-void EdmGlobalConfig::setBandwidthLimit(BandWidthLimit limit) {
+void EdmConfig::setBandwidthLimit(BandWidthLimit limit) {
     settings_.setValue(kBandwidthLimit, limit);
     settings_.sync();
 }
 
-QString EdmGlobalConfig::getUserAgent() const {
+QString EdmConfig::getUserAgent() const {
     return settings_.value(kUserAgent, GlobalDefaults::kDefaultUserAgent).toString();
 }
 
-void EdmGlobalConfig::setUserAgent(QString const& userAgent) {
+void EdmConfig::setUserAgent(QString const& userAgent) {
     settings_.setValue(kUserAgent, userAgent);
     settings_.sync();
 }
 
-proxy_utils::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
-    proxy_utils::ProxyConfig cfg{};
+ProxyConfig EdmConfig::getProxyConfig() const {
+    ProxyConfig cfg{};
     cfg.type_ = static_cast<ProxyType>(settings_.value(kProxyType, static_cast<int>(ProxyType::None)).toInt());
     if (cfg.type_ == ProxyType::None) {
         return cfg;
@@ -74,7 +125,7 @@ proxy_utils::ProxyConfig EdmGlobalConfig::getProxyConfig() const {
     cfg.password_ = settings_.value(kProxyPassword, QString{}).toString();
     return cfg;
 }
-void EdmGlobalConfig::setProxyConfig(proxy_utils::ProxyConfig const& config) {
+void EdmConfig::setProxyConfig(ProxyConfig const& config) {
     settings_.setValue(kProxyType, static_cast<int>(config.type_));
     settings_.setValue(kProxyHost, config.host_.value_or(QString{}));
     settings_.setValue(kProxyPort, config.port_.value_or(0));
@@ -88,51 +139,49 @@ void EdmGlobalConfig::setProxyConfig(proxy_utils::ProxyConfig const& config) {
     settings_.sync();
 }
 
-QString EdmGlobalConfig::getSaveDir() const { return settings_.value(kSaveDir, getDefaultSaveDir()).toString(); }
+QString EdmConfig::getSaveDir() const { return settings_.value(kSaveDir, getDefaultSaveDir()).toString(); }
 
-void EdmGlobalConfig::setSaveDir(QString const& dir) {
+void EdmConfig::setSaveDir(QString const& dir) {
     settings_.setValue(kSaveDir, dir);
     settings_.sync();
 }
 
-QString EdmGlobalConfig::getTempDir() const { return settings_.value(kTempDir, getDefaultTempDir()).toString(); }
+QString EdmConfig::getTempDir() const { return settings_.value(kTempDir, getDefaultTempDir()).toString(); }
 
-void EdmGlobalConfig::setTempDir(QString const& dir) {
+void EdmConfig::setTempDir(QString const& dir) {
     settings_.setValue(kTempDir, dir);
     settings_.sync();
 }
 
-bool EdmGlobalConfig::canAutoStart() const { return settings_.value(kAutoStart, kDefaultAutoStart).toBool(); }
+bool EdmConfig::canAutoStart() const { return settings_.value(kAutoStart, kDefaultAutoStart).toBool(); }
 
-void EdmGlobalConfig::setAutoStart(bool autoStart) {
+void EdmConfig::setAutoStart(bool autoStart) {
     settings_.setValue(kAutoStart, autoStart);
     settings_.sync();
 }
 
-bool EdmGlobalConfig::canShowDownloadCompleteDialog() const {
+bool EdmConfig::canShowDownloadCompleteDialog() const {
     return settings_.value(kShowComplete, kDefaultShowComplete).toBool();
 }
 
-void EdmGlobalConfig::setShowDownloadCompleteDialog(bool show) {
+void EdmConfig::setShowDownloadCompleteDialog(bool show) {
     settings_.setValue(kShowComplete, show);
     settings_.sync();
 }
 
 
-QString EdmGlobalConfig::getAppDataDir() {
+QString EdmConfig::getAppDataDir() {
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/edm";
     (void)QDir().mkpath(path);
     return path;
 }
-QString EdmGlobalConfig::getDefaultSaveDir() {
-    return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-}
-QString EdmGlobalConfig::getDefaultTempDir() {
+QString EdmConfig::getDefaultSaveDir() { return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation); }
+QString EdmConfig::getDefaultTempDir() {
     QString path = getAppDataDir() + "/tasks";
     (void)QDir().mkpath(path);
     return path;
 }
-QString EdmGlobalConfig::getDatabasePath() { return getAppDataDir() + "/downloads.db"; }
+QString EdmConfig::getDatabasePath() { return getAppDataDir() + "/downloads.db"; }
 
 
 } // namespace edm
