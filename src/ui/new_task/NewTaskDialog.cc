@@ -18,6 +18,8 @@ NewTaskDialog::NewTaskDialog(QWidget* parent) : QDialog(parent), ui(new Ui::NewT
     QString text      = clipboard->text();
     if (text.startsWith("http://") || text.startsWith("https://")) {
         ui->urlInput_->setText(text);
+        ui->urlInput_->setFocus();  // 聚焦
+        ui->urlInput_->selectAll(); // 选中默认填充 URL
     }
 
     ui->dirInput_->setText(EdmConfig::getInstance().getSaveDir());
