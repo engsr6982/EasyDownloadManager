@@ -30,7 +30,7 @@ public:
     ~Error() noexcept = default;
 
     Error(std::unique_ptr<IErrorInfo> e) noexcept : info(std::move(e)) {}
-    Error(::nonstd::unexpected_type<Error> e) noexcept : info(std::move(e.error())) {}
+    Error(::nonstd::unexpected_type<Error> e) noexcept : Error(std::move(e.error())) {}
 
     std::string message() const noexcept try { return info ? info->message() : "success"; } catch (...) {
         return "unknown error";
@@ -47,6 +47,7 @@ struct StringError : IErrorInfo {
     std::string message() const noexcept override { return str; }
 };
 
+inline Unexpected forwardError(Error& err) noexcept { return ::nonstd::make_unexpected(std::move(err)); }
 
 template <std::derived_from<IErrorInfo> T, class... Args>
 inline Unexpected makeError(Args&&... args) noexcept {
