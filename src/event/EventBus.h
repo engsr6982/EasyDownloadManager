@@ -2,6 +2,7 @@
 #include <qobject.h>
 
 namespace edm {
+struct TaskModel;
 
 struct MetaInfoResultEvent;
 
@@ -42,6 +43,16 @@ signals:
      * @param result 结果
      */
     void onTaskMetaInfoFetched(edm::MetaInfoResultEvent const& result) const;
+
+    /**
+     * 数据库新增了任务，通知主界面更新 UI
+     */
+    void onTaskAddedToDatabase(edm::TaskModel const& task) const;
+
+    /**
+     * 请求调度器派发/启动任务
+     */
+    void onRequestDispatchTask(edm::TaskModel const& task) const;
 };
 
 } // namespace edm

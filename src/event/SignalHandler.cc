@@ -1,7 +1,7 @@
 #include "SignalHandler.h"
 
-#include "EdmConfig.h"
 #include "EdmApplication.h"
+#include "EdmConfig.h"
 #include "EventBus.h"
 #include "Events.h"
 #include "database/DownloadDatabase.h"
@@ -12,6 +12,7 @@
 #include "ui/task_information/TaskInformationDialog.h"
 
 #include "fmt/format.h"
+#include "utils/Utils.h"
 
 #include <QApplication>
 #include <qmessagebox.h>
@@ -97,28 +98,43 @@ void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev
                     info.contentDisposition.value_or("nullopt"),
                     info.md5.value_or("nullopt")
                 );
-    // TODO: 获取到文件信息后，正式构造 TaskModel
-    // EdmApplication::getInstance().getDatabase()->insertTask(model);
-    // 将任务丢给 Dispatcher 去实例化 DownloadTask 并执行
 
-    // TaskModel model{};
-    // model.url       = string_utils::qstring2string(result.url);
-    // model.fileName  = ...; // TODO: 从 URL 或 Header 解析文件名 (可以写个 Utils)
-    // model.fileSize  = result.fileSize;
-    // model.resumable = result.supportRange ? Resumable::Yes : Resumable::No;
-    // model.state     = TaskState::Pending;
-    // model.firstTry  = std::time(nullptr);
-    // model.lastTry   = model.firstTry;
-    // ... 补全其他目录等信息 ...
+    std::string fileName = "unknown_file.dat";
+    auto        urlStr   = info.finalUrl;
+    auto        pos      = urlStr.find_last_of('/');
+    if (pos != std::string::npos && pos + 1 < urlStr.length()) {
+        fileName = urlStr.substr(pos + 1);
+        // 去除可能的 URL 参数 ?xxx=yyy
+        auto qMark = fileName.find('?');
+        if (qMark != std::string::npos) fileName = fileName.substr(0, qMark);
+    }
+
+    auto& conf = EdmConfig::getInstance();
+
+    TaskModel model{};
+    model.id             = 0;
+    model.url            = info.finalUrl;
+    model.fileName       = fileName;
+    model.fileSize       = info.fileSize.value_or(0);
+    model.category       = utils::resolveFileCategory(fileName);
+    model.state          = TaskState::Pending;
+    model.bandWidthLimit = conf.getBandwidthLimit();
+    model.threadCount    = conf.getThreadCount();
+    model.firstTry       = std::time(nullptr);
+    model.lastTry        = model.firstTry;
+    model.userAgent      = conf.getUserAgent().toStdString();
+    model.resumable      = info.supportRange ? Resumable::Yes : Resumable::No;
+    model.saveDir        = conf.getSaveDir().toStdString();
+    model.tempDir        = conf.getTempDir().toStdString();
 
     // 存入数据库
-    // EdmApplication::getInstance().getDatabase()->insertTask(model);
+    EdmApplication::getInstance().getDatabase()->insertTask(model);
 
     // 通知主窗口插入新行
-    // emit EventBus::instance() -> onTaskAddedToDatabase(model);
+    emit EventBus::instance() -> onTaskAddedToDatabase(model);
 
-    // 通知 Dispatcher 将任务加入调度队列
-    // emit EventBus::instance() -> onRequestDispatchTask(model.id);
+    // 通知 Dispatcher 将任务加入调度队列并启动
+    emit EventBus::instance() -> onRequestDispatchTask(model);
 }
 
 
