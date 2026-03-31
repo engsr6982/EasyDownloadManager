@@ -21,7 +21,7 @@ public slots:
     void handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const;
     void handleRequestOpenSettingDialog(bool checked = false) const;
     void handleRequestOpenTaskInfoDialog(int id) const;
-    void handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& result) const;
+    void handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev) const;
 };
 
 } // namespace edm

@@ -1,33 +1,25 @@
 #pragma once
+#include <QMetaType>
 #include <QString>
 #include <optional>
 #include <string>
-#include <QMetaType>
 
 #include "fmt/format.h"
+
+#include "downloader/FetchedMetaInfo.h"
 
 namespace edm {
 
 struct MetaInfoResultEvent {
-    QString url;
-    bool    success;
-    qint64  fileSize;
-    bool    supportRange;
-    QString errorMessage;
+    // info or error
+    std::variant<std::monostate, downloader::FetchedMetaInfo, std::string> result{};
 
-    inline std::string toDebugString() const {
-        return fmt::format(
-            "url: {}, success: {}, fileSize: {}, supportRange: {}, errorMessage: {}",
-            url.toStdString(),
-            success,
-            fileSize,
-            supportRange,
-            errorMessage.toStdString()
-        );
+    template <typename T>
+    inline bool hold() const {
+        return std::holds_alternative<T>(result);
     }
 };
 
 } // namespace edm
 
 Q_DECLARE_METATYPE(edm::MetaInfoResultEvent)
-

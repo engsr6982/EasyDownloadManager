@@ -1,34 +1,13 @@
 #pragma once
+#include "expected.h"
 #include "model/TaskModel.h"
-
 
 #include <optional>
 #include <string>
 
-#include <curl/curl.h>
-
 namespace edm::downloader {
 
-struct SCurl {
-    CURL*       curl_{nullptr};
-    curl_slist* headers_{nullptr};
-
-    SCurl(CURL* c, curl_slist* h);
-    ~SCurl();
-
-    SCurl(SCurl&& o) noexcept;
-    SCurl& operator=(SCurl&& o) noexcept;
-
-    SCurl(const SCurl&)            = delete;
-    SCurl& operator=(const SCurl&) = delete;
-
-    inline CURL* get() const noexcept { return curl_; }
-
-    inline explicit operator bool() const noexcept { return curl_ != nullptr; }
-
-private:
-    void cleanup();
-};
+class CurlEx;
 
 struct TaskConfigure {
     std::string                url_;
@@ -49,7 +28,7 @@ struct TaskConfigure {
     TaskConfigure() = default;
     explicit TaskConfigure(TaskModel const& model) noexcept;
 
-    [[nodiscard]] SCurl newCurl() const;
+    [[nodiscard]] Expected<CurlEx> newCurl() const;
 };
 
 } // namespace edm::downloader

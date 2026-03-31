@@ -33,8 +33,8 @@ set(PROJECT_SOURCES
         src/downloader/DownloadWorker.h
         src/downloader/TaskConfigure.h
         src/downloader/TaskConfigure.cc
-        src/downloader/TaskMetaInfoFetcher.cc
-        src/downloader/TaskMetaInfoFetcher.h
+        src/downloader/MetaInfoFetcher.cc
+        src/downloader/MetaInfoFetcher.h
         src/event/EventBus.h
         src/event/SignalHandler.cc
         src/event/SignalHandler.h
@@ -72,6 +72,9 @@ set(PROJECT_SOURCES
         src/main.cpp
         src/event/Events.h
         src/expected.h
+        src/downloader/CurlEx.h
+        src/downloader/CurlEx.cc
+        src/downloader/FetchedMetaInfo.h
 )
 
 # --- 创建目标 ---

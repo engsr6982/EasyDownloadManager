@@ -10,7 +10,7 @@
 
 namespace edm ::downloader {
 
-class TaskMetaInfoFetcher;
+class MetaInfoFetcher;
 
 class DownloadTask final {
     TaskState                  state_{TaskState::Pending};
