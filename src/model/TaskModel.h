@@ -6,11 +6,6 @@
 
 namespace edm {
 
-enum class RequestType {
-    GET, // GET 请求
-    POST // POST 请求
-};
-
 enum class Category {
     Video,       // 视频
     Audio,       // 音频
@@ -38,7 +33,6 @@ enum class Resumable {
 struct TaskModel {
     int            id;             // 主键
     std::string    url;            // 下载链接
-    RequestType    method;         // 请求类型 (默认 GET)
     std::string    fileName;       // 文件名
     FileSize       fileSize;       // 文件大小 (byte)
     Category       category;       // 分类
@@ -53,7 +47,6 @@ struct TaskModel {
     std::string    pageTitle;      // 页面标题
     std::string    mimeType;       // MIME 类型
     std::string    errorMsg;       // 错误信息
-    std::string    postBody;       // POST 请求的 Body
     std::string    saveDir;        // 保存目录
     std::string    tempDir;        // 临时目录
 };

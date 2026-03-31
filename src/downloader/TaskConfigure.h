@@ -22,9 +22,6 @@ struct TaskConfigure {
     std::optional<std::string> mimeType_;
     std::optional<std::string> proxyUrl_;
 
-    RequestType                requestType_{RequestType::GET};
-    std::optional<std::string> postBody_;
-
     TaskConfigure() = default;
     explicit TaskConfigure(TaskModel const& model) noexcept;
 

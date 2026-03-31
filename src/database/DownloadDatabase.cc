@@ -25,7 +25,6 @@ void DownloadDatabase::initTables() const {
                 CREATE TABLE IF NOT EXISTS downloads (
                     id INTEGER PRIMARY KEY,
                     url TEXT NOT NULL,
-                    method INTEGER NOT NULL,         -- RequestType 枚举
                     fileName TEXT NOT NULL,
                     fileSize INTEGER NOT NULL,       -- int64
                     category INTEGER NOT NULL,       -- Category 枚举
@@ -40,7 +39,6 @@ void DownloadDatabase::initTables() const {
                     pageTitle TEXT NOT NULL,
                     mimeType TEXT NOT NULL,
                     errorMsg TEXT NOT NULL,
-                    postBody TEXT NOT NULL,
                     saveDir TEXT NOT NULL,
                     tempDir TEXT NOT NULL
                 );
@@ -75,7 +73,6 @@ void DownloadDatabase::insertTask(TaskModel& task) {
             INSERT OR REPLACE INTO downloads (
                 id,
                 url,
-                method,
                 fileName,
                 fileSize,
                 category,
@@ -90,10 +87,9 @@ void DownloadDatabase::insertTask(TaskModel& task) {
                 pageTitle,
                 mimeType,
                 errorMsg,
-                postBody,
                 saveDir,
                 tempDir
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         )"
     );
 
@@ -105,7 +101,6 @@ void DownloadDatabase::insertTask(TaskModel& task) {
     }
 
     query.bind(idx++, task.url);
-    query.bind(idx++, static_cast<int>(task.method));
     query.bind(idx++, task.fileName);
     query.bind(idx++, task.fileSize);
     query.bind(idx++, static_cast<int>(task.category));
@@ -120,7 +115,6 @@ void DownloadDatabase::insertTask(TaskModel& task) {
     query.bind(idx++, task.pageTitle);
     query.bind(idx++, task.mimeType);
     query.bind(idx++, task.errorMsg);
-    query.bind(idx++, task.postBody);
     query.bind(idx++, task.saveDir);
     query.bind(idx++, task.tempDir);
 
@@ -162,7 +156,6 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
             SELECT
                 id,
                 url,
-                method,
                 fileName,
                 fileSize,
                 category,
@@ -177,7 +170,6 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
                 pageTitle,
                 mimeType,
                 errorMsg,
-                postBody,
                 saveDir,
                 tempDir
             FROM downloads
@@ -195,7 +187,6 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
     int       idx       = 0;
     task.id             = query.getColumn(idx++).getInt();
     task.url            = query.getColumn(idx++).getString();
-    task.method         = static_cast<RequestType>(query.getColumn(idx++).getInt());
     task.fileName       = query.getColumn(idx++).getString();
     task.fileSize       = query.getColumn(idx++).getInt64();
     task.category       = static_cast<Category>(query.getColumn(idx++).getInt());
@@ -210,7 +201,6 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
     task.pageTitle      = query.getColumn(idx++).getString();
     task.mimeType       = query.getColumn(idx++).getString();
     task.errorMsg       = query.getColumn(idx++).getString();
-    task.postBody       = query.getColumn(idx++).getString();
     task.saveDir        = query.getColumn(idx++).getString();
     task.tempDir        = query.getColumn(idx++).getString();
 
@@ -255,7 +245,6 @@ void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& 
             SELECT
                 id,
                 url,
-                method,
                 fileName,
                 fileSize,
                 category,
@@ -270,7 +259,6 @@ void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& 
                 pageTitle,
                 mimeType,
                 errorMsg,
-                postBody,
                 saveDir,
                 tempDir
             FROM downloads
@@ -283,7 +271,6 @@ void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& 
         idx                 = 0;
         task.id             = query.getColumn(idx++).getInt();
         task.url            = query.getColumn(idx++).getString();
-        task.method         = static_cast<RequestType>(query.getColumn(idx++).getInt());
         task.fileName       = query.getColumn(idx++).getString();
         task.fileSize       = query.getColumn(idx++).getInt64();
         task.category       = static_cast<Category>(query.getColumn(idx++).getInt());
@@ -298,7 +285,6 @@ void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& 
         task.pageTitle      = query.getColumn(idx++).getString();
         task.mimeType       = query.getColumn(idx++).getString();
         task.errorMsg       = query.getColumn(idx++).getString();
-        task.postBody       = query.getColumn(idx++).getString();
         task.saveDir        = query.getColumn(idx++).getString();
         task.tempDir        = query.getColumn(idx++).getString();
 
@@ -321,7 +307,6 @@ void DownloadDatabase::insertFakeTasks(int count) {
         TaskModel task;
         task.id             = 0; // 自动分配
         task.url            = std::format("https://example.com/file{}.dat", i);
-        task.method         = RequestType::GET;
         task.fileName       = std::format("file{}.dat", i);
         task.fileSize       = sizeDist(rng);
         task.category       = Category::Other;
@@ -336,7 +321,6 @@ void DownloadDatabase::insertFakeTasks(int count) {
         task.pageTitle      = "Example Page";
         task.mimeType       = "application/octet-stream";
         task.errorMsg       = "";
-        task.postBody       = "";
         task.saveDir        = EdmConfig::getInstance().getSaveDir().toStdString();
         task.tempDir        = EdmConfig::getInstance().getTempDir().toStdString();
 

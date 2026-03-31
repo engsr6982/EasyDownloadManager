@@ -42,11 +42,6 @@ Expected<CurlEx> TaskConfigure::newCurl() const {
         curl.append("Origin: " + *origin_);
     }
 
-    if (requestType_ == RequestType::POST && postBody_) { // 设置请求类型
-        curl.setOpt(CURLOPT_POST, 1L);
-        curl.setOpt(CURLOPT_POSTFIELDS, postBody_->c_str());
-    }
-
     if (proxyUrl_) {
         curl.setOpt(CURLOPT_PROXY, proxyUrl_->c_str()); // 设置代理
     }
