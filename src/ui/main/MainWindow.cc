@@ -1,4 +1,6 @@
 #include "MainWindow.h"
+
+#include "Dispatcher.h"
 #include "EdmApplication.h"
 #include "database/DownloadDatabase.h"
 #include "event/EventBus.h"
@@ -24,6 +26,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainW
     _setupLayout(); // 初始化布局
 
     initDataFromDB();
+
+    // 任务已创建
+    connect(EventBus::instance(), &EventBus::onTaskAddedToDatabase, this, &MainWindow::handleTaskAddedToDatabase);
 }
 
 MainWindow::~MainWindow() { delete ui_; }
@@ -60,6 +65,8 @@ void MainWindow::insertTask(TaskModel const& task) {
     table->setItem(row, 5, new QTableWidgetItem(QString::fromStdString(utils::TimeStamp2String(task.lastTry))));
 }
 
+void MainWindow::handleTaskAddedToDatabase(edm::TaskModel const& task) { insertTask(task); }
+
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (auto tray = EdmApplication::getInstance().getTrayIcon(); tray && tray->isVisible()) {
         hide();
@@ -85,6 +92,40 @@ void MainWindow::_setupLayout() {
     _buildToolBar();
     _buildFileTree();
     _buildTaskList();
+
+    uiUpdateTimer_ = new QTimer(this);
+    uiUpdateTimer_->setInterval(1000); // 1秒刷新一次
+    connect(uiUpdateTimer_, &QTimer::timeout, this, [this]() {
+        auto dispatcher = EdmApplication::getInstance().getDispatcher();
+
+        // 通知调度器计算最新的速度
+        dispatcher->updateAllSpeeds();
+
+        // 遍历当前 UI 列表，更新显示
+        auto table = ui_->taskList_;
+        for (int row = 0; row < table->rowCount(); ++row) {
+            auto item = table->item(row, 0);
+            if (!item) continue;
+
+            int  id       = item->data(Qt::UserRole).toInt();
+            auto snapshot = dispatcher->getTaskSnapshot(id);
+            if (snapshot) {
+                // 更新状态文本
+                table->item(row, 2)->setText(QString::fromStdString(magic_enum::enum_name(snapshot->state).data()));
+
+                // 更新速度
+                if (snapshot->state == TaskState::Running) {
+                    QString speedStr = QString::fromStdString(utils::FileSize2String(snapshot->speed)) + "/s";
+                    table->item(row, 3)->setText(speedStr);
+
+                    // TODO: 计算剩余时间
+                } else {
+                    table->item(row, 3)->setText(""); // 停止或完成则清空速度
+                }
+            }
+        }
+    });
+    uiUpdateTimer_->start();
 }
 void MainWindow::_buildToolBar() const {
     auto toolBar = ui_->mainToolBar_;
@@ -174,14 +215,24 @@ void MainWindow::_buildTaskList() {
     list->setColumnCount(static_cast<int>(headers.size()));
     list->setHorizontalHeaderLabels(headers); // 设置表头
 
-    list->setSelectionBehavior(QAbstractItemView::SelectRows);     // 整行选中
-    list->setEditTriggers(QAbstractItemView::NoEditTriggers);      // 禁止编辑
-    list->setAlternatingRowColors(true);                           // 交替行背景
-    list->setSortingEnabled(true);                                 // 允许排序
-    list->verticalHeader()->setVisible(false);                     // 隐藏行号
-    list->horizontalHeader()->setStretchLastSection(true);         // 最后一列拉伸填满
+    list->setSelectionBehavior(QAbstractItemView::SelectRows); // 整行选中
+    list->setEditTriggers(QAbstractItemView::NoEditTriggers);  // 禁止编辑
+    list->setAlternatingRowColors(true);                       // 交替行背景
+    list->setSortingEnabled(true);                             // 允许排序
+    list->verticalHeader()->setVisible(false);                 // 隐藏行号
+
+    // 首列拉伸填满
+    list->horizontalHeader()->setStretchLastSection(false);
+    list->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+
     list->sortItems(list->columnCount() - 1, Qt::DescendingOrder); // 默认按最后尝试时间降序排序
     list->verticalHeader()->setDefaultSectionSize(20);             // 设置行高
+
+    // 选择模式：单行
+    list->setSelectionMode(QAbstractItemView::SingleSelection);
+    // 禁用拖拽选择
+    list->setDragEnabled(false);
+    list->setDragDropMode(QAbstractItemView::NoDragDrop);
 
     list->setStyleSheet(R"(
         QTableWidget::item:selected {
@@ -206,6 +257,9 @@ void MainWindow::_buildTaskList() {
     // 右键菜单
     list->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(list, &QTableWidget::customContextMenuRequested, this, [this, list](const QPoint& pos) {
+        QModelIndex index = ui_->taskList_->indexAt(pos);
+        if (!index.isValid()) return; // 没点到有效项
+
         QMenu menu;
         menu.addAction("暂停/恢复", [this, list, pos]() {
             // TODO: impl

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
-
+#include <QTimer>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -29,6 +29,9 @@ public:
 
     void insertTask(TaskModel const& task);
 
+private slots:
+    void handleTaskAddedToDatabase(edm::TaskModel const& task);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
@@ -41,6 +44,7 @@ private:
     void _buildTaskList();
 
     Ui::MainWindow* ui_{nullptr};
+    QTimer*         uiUpdateTimer_{nullptr};
 };
 
 } // namespace edm
