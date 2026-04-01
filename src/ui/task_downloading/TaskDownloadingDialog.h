@@ -1,11 +1,12 @@
-#ifndef TASKDOWNLOADINGDIALOG_H
-#define TASKDOWNLOADINGDIALOG_H
+#pragma once
 
 #include <QDialog>
 
 namespace Ui {
 class TaskDownloadingDialog;
 }
+
+namespace edm {
 
 class TaskDownloadingDialog : public QDialog {
     Q_OBJECT
@@ -18,4 +19,4 @@ private:
     Ui::TaskDownloadingDialog* ui;
 };
 
-#endif // TASKDOWNLOADINGDIALOG_H
+} // namespace edm
