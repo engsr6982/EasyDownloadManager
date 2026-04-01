@@ -23,7 +23,6 @@ TaskInformationDialog::TaskInformationDialog(TaskModel const& model, QWidget* pa
     ui->firstTry_->setText(QString::fromStdString(utils::TimeStamp2String(model.firstTry)));
     ui->lastTry_->setText(QString::fromStdString(utils::TimeStamp2String(model.lastTry)));
     ui->saveDirInput_->setText(QString::fromStdString(model.saveDir));
-    ui->tempDirInput_->setText(QString::fromStdString(model.tempDir));
     ui->urlInput_->setText(QString::fromStdString(model.url));
     ui->pageUrlInput_->setText(QString::fromStdString(model.pageUrl));
     ui->pageTitle_->setText(QString::fromStdString(model.pageTitle));

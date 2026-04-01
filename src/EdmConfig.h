@@ -62,9 +62,6 @@ public:
     QString getSaveDir() const;
     void    setSaveDir(QString const& dir);
 
-    QString getTempDir() const;
-    void    setTempDir(QString const& dir);
-
     // 自启动
     bool canAutoStart() const;
     void setAutoStart(bool autoStart);
@@ -79,7 +76,6 @@ public:
 
     static QString getAppDataDir();
     static QString getDefaultSaveDir();
-    static QString getDefaultTempDir();
     static QString getDatabasePath();
 };
 

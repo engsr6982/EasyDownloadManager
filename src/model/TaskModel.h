@@ -48,7 +48,6 @@ struct TaskModel {
     std::string    mimeType;       // MIME 类型
     std::string    errorMsg;       // 错误信息
     std::string    saveDir;        // 保存目录
-    std::string    tempDir;        // 临时目录
 };
 
 struct TaskHeaderModel {

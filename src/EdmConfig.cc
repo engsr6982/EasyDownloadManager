@@ -76,7 +76,6 @@ constexpr auto kThreadCount    = "downloader/threadCount";    // int
 constexpr auto kBandwidthLimit = "downloader/bandwidthLimit"; // int
 constexpr auto kUserAgent      = "downloader/userAgent";      // string
 constexpr auto kSaveDir        = "downloader/saveDir";        // string
-constexpr auto kTempDir        = "downloader/tempDir";        // string
 constexpr auto kAutoStart      = "downloader/autoStart";      // bool
 constexpr auto kShowComplete   = "downloader/showComplete";   // bool
 constexpr auto kProxyType      = "proxy/type";                // int
@@ -146,13 +145,6 @@ void EdmConfig::setSaveDir(QString const& dir) {
     settings_.sync();
 }
 
-QString EdmConfig::getTempDir() const { return settings_.value(kTempDir, getDefaultTempDir()).toString(); }
-
-void EdmConfig::setTempDir(QString const& dir) {
-    settings_.setValue(kTempDir, dir);
-    settings_.sync();
-}
-
 bool EdmConfig::canAutoStart() const { return settings_.value(kAutoStart, kDefaultAutoStart).toBool(); }
 
 void EdmConfig::setAutoStart(bool autoStart) {
@@ -176,11 +168,6 @@ QString EdmConfig::getAppDataDir() {
     return path;
 }
 QString EdmConfig::getDefaultSaveDir() { return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation); }
-QString EdmConfig::getDefaultTempDir() {
-    QString path = getAppDataDir() + "/tasks";
-    (void)QDir().mkpath(path);
-    return path;
-}
 QString EdmConfig::getDatabasePath() { return getAppDataDir() + "/downloads.db"; }
 
 

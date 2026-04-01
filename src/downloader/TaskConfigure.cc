@@ -9,7 +9,6 @@ namespace edm::downloader {
 TaskConfigure::TaskConfigure(TaskModel const& model) noexcept {
     url_            = model.url;
     saveDir_        = model.saveDir;
-    tempDir_        = model.tempDir;
     threadCount_    = model.threadCount;
     bandWidthLimit_ = model.bandWidthLimit;
     userAgent_      = model.userAgent;
@@ -62,7 +61,6 @@ TaskConfigure TaskConfigure::fromUrl(std::string const& url, std::string const& 
 
     auto& conf = EdmConfig::getInstance();
 
-    configure.tempDir_        = conf.getTempDir().toStdString();
     configure.threadCount_    = conf.getThreadCount();
     configure.userAgent_      = conf.getUserAgent().toStdString();
     configure.bandWidthLimit_ = conf.getBandwidthLimit();

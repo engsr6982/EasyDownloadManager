@@ -12,7 +12,6 @@ class CurlEx;
 struct TaskConfigure {
     std::string                url_;
     std::string                saveDir_;
-    std::string                tempDir_;
     int                        threadCount_;
     BandWidthLimit             bandWidthLimit_{0}; // 单位：KB/s
     std::optional<std::string> userAgent_;

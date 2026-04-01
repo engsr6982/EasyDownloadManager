@@ -25,7 +25,6 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Se
     connect(ui->userAgentResetBtn_, &QToolButton::clicked, this, &SettingsDialog::onResetUserAgentButtonClicked);
 
     connect(ui->saveDirChooseBtn_, &QToolButton::clicked, this, [this]() { chooseDir(ui->saveDirInput_); });
-    connect(ui->tempDirChooseBtn_, &QToolButton::clicked, this, [this]() { chooseDir(ui->tempDirInput_); });
 }
 
 SettingsDialog::~SettingsDialog() { delete ui; }
@@ -82,7 +81,6 @@ void SettingsDialog::syncWidgetStateFromConfig() const {
     ui->bandWidthLimitInput_->setText(QString::fromStdString(std::to_string(config.getBandwidthLimit())));
     ui->userAgentInput_->setText(config.getUserAgent());
     ui->saveDirInput_->setText(config.getSaveDir());
-    ui->tempDirInput_->setText(config.getTempDir());
     ui->autoStartCheckBox_->setChecked(config.canAutoStart());
     ui->showCompleteCheckBox_->setChecked(config.canShowDownloadCompleteDialog());
 
@@ -123,13 +121,6 @@ void SettingsDialog::saveWidgetStateToConfig() {
             return;
         }
         config.setSaveDir(saveDir);
-
-        auto tempDir = ui->tempDirInput_->text();
-        if (!dir.exists(tempDir)) {
-            QMessageBox::warning(this, "Error", "临时目录不存在");
-            return;
-        }
-        config.setTempDir(tempDir);
     }
     config.setAutoStart(ui->autoStartCheckBox_->isChecked());
     config.setShowDownloadCompleteDialog(ui->showCompleteCheckBox_->isChecked());

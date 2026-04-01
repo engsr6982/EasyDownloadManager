@@ -39,8 +39,7 @@ void DownloadDatabase::initTables() const {
                     pageTitle TEXT NOT NULL,
                     mimeType TEXT NOT NULL,
                     errorMsg TEXT NOT NULL,
-                    saveDir TEXT NOT NULL,
-                    tempDir TEXT NOT NULL
+                    saveDir TEXT NOT NULL
                 );
             )"
         );
@@ -87,9 +86,8 @@ void DownloadDatabase::insertTask(TaskModel& task) {
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir,
-                tempDir
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                saveDir
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         )"
     );
 
@@ -116,7 +114,6 @@ void DownloadDatabase::insertTask(TaskModel& task) {
     query.bind(idx++, task.mimeType);
     query.bind(idx++, task.errorMsg);
     query.bind(idx++, task.saveDir);
-    query.bind(idx++, task.tempDir);
 
     query.exec();
 
@@ -170,8 +167,7 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir,
-                tempDir
+                saveDir
             FROM downloads
             WHERE id=?
         )"
@@ -202,7 +198,6 @@ std::optional<TaskModel> DownloadDatabase::getTaskById(int id) const {
     task.mimeType       = query.getColumn(idx++).getString();
     task.errorMsg       = query.getColumn(idx++).getString();
     task.saveDir        = query.getColumn(idx++).getString();
-    task.tempDir        = query.getColumn(idx++).getString();
 
     return task;
 }
@@ -259,8 +254,7 @@ void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& 
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir,
-                tempDir
+                saveDir
             FROM downloads
         )"
     );
@@ -286,7 +280,6 @@ void DownloadDatabase::forEachTask(std::function<bool(TaskModel const&)> const& 
         task.mimeType       = query.getColumn(idx++).getString();
         task.errorMsg       = query.getColumn(idx++).getString();
         task.saveDir        = query.getColumn(idx++).getString();
-        task.tempDir        = query.getColumn(idx++).getString();
 
         // 如果回调返回 false，则提前停止遍历
         if (!callback(task)) {
@@ -322,7 +315,6 @@ void DownloadDatabase::insertFakeTasks(int count) {
         task.mimeType       = "application/octet-stream";
         task.errorMsg       = "";
         task.saveDir        = EdmConfig::getInstance().getSaveDir().toStdString();
-        task.tempDir        = EdmConfig::getInstance().getTempDir().toStdString();
 
         insertTask(task);
     }

@@ -125,7 +125,6 @@ void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev
     model.userAgent      = conf.getUserAgent().toStdString();
     model.resumable      = info.supportRange ? Resumable::Yes : Resumable::No;
     model.saveDir        = conf.getSaveDir().toStdString();
-    model.tempDir        = conf.getTempDir().toStdString();
 
     // 存入数据库
     EdmApplication::getInstance().getDatabase()->insertTask(model);
