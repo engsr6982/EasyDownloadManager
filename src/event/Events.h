@@ -12,7 +12,7 @@ namespace edm {
 
 struct MetaInfoResultEvent {
     // info or error
-    std::variant<std::monostate, downloader::FetchedMetaInfo, std::string> result{};
+    std::variant<std::monostate, FetchedMetaInfo, std::string> result{};
 
     template <typename T>
     inline bool hold() const {

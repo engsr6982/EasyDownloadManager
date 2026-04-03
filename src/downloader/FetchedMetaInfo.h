@@ -4,7 +4,7 @@
 
 #include "Global.h"
 
-namespace edm::downloader {
+namespace edm {
 
 struct FetchedMetaInfo {
     std::string finalUrl;            // 最终请求的 URL (经过重定向后)
@@ -19,4 +19,4 @@ struct FetchedMetaInfo {
 };
 
 
-} // namespace edm::downloader
+} // namespace edm

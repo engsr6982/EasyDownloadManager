@@ -2,25 +2,26 @@
 
 #include "CurlEx.h"
 #include "EdmConfig.h"
+#include "model/TaskModel.h"
 
-namespace edm::downloader {
+namespace edm {
 
 
-TaskConfigure::TaskConfigure(TaskModel const& model) noexcept {
-    url_            = model.url;
-    saveDir_        = model.saveDir;
-    threadCount_    = model.threadCount;
-    bandWidthLimit_ = model.bandWidthLimit;
-    userAgent_      = model.userAgent;
+TaskConfigure::TaskConfigure(std::shared_ptr<edm::TaskModel> model) noexcept {
+    url_            = model->url;
+    saveDir_        = model->saveDir;
+    threadCount_    = model->threadCount;
+    bandWidthLimit_ = model->bandWidthLimit;
+    userAgent_      = model->userAgent;
     // origin_ = ; // TODO: impl
     // referer_ = ;
     // cookie_ = ;
-    mimeType_ = model.mimeType;
+    mimeType_ = model->mimeType;
     proxyUrl_ = EdmConfig::getInstance().getProxyConfig().toProxyUrl();
 }
 
-Expected<CurlEx> TaskConfigure::newCurl() const {
-    auto curl = CurlEx{};
+Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
+    auto curl = downloader::CurlEx{};
 
     curl.setOpt(CURLOPT_URL, url_.c_str())   // 设置地址
         .setOpt(CURLOPT_FOLLOWLOCATION, 1L); // 跟随重定向
@@ -54,21 +55,22 @@ Expected<CurlEx> TaskConfigure::newCurl() const {
     return curl;
 }
 
-TaskConfigure TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, bool useProxy) {
-    TaskConfigure configure;
-    configure.url_     = url;
-    configure.saveDir_ = saveDir;
+std::shared_ptr<TaskConfigure>
+TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, bool useProxy) {
+    auto configure      = std::make_shared<TaskConfigure>();
+    configure->url_     = url;
+    configure->saveDir_ = saveDir;
 
     auto& conf = EdmConfig::getInstance();
 
-    configure.threadCount_    = conf.getThreadCount();
-    configure.userAgent_      = conf.getUserAgent().toStdString();
-    configure.bandWidthLimit_ = conf.getBandwidthLimit();
+    configure->threadCount_    = conf.getThreadCount();
+    configure->userAgent_      = conf.getUserAgent().toStdString();
+    configure->bandWidthLimit_ = conf.getBandwidthLimit();
     if (auto proxy = conf.getProxyConfig(); useProxy && !proxy.isNone()) {
-        configure.proxyUrl_ = proxy.toProxyUrl();
+        configure->proxyUrl_ = proxy.toProxyUrl();
     }
 
     return configure;
 }
 
-} // namespace edm::downloader
+} // namespace edm

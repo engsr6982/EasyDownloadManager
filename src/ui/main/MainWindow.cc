@@ -7,6 +7,7 @@
 #include "model/TaskModel.h"
 #include "ui_MainWindow.h"
 #include "utils/IconUtils.h"
+#include "utils/TimeUtils.h"
 #include "utils/Utils.h"
 
 #include <QCloseEvent>
@@ -41,31 +42,39 @@ void MainWindow::initDataFromDB() {
     auto db = EdmApplication::getInstance().getDatabase();
     assert(db != nullptr);
     ui_->taskList_->setUpdatesEnabled(false);
-    db->forEachTask([this](TaskModel const& task) {
+    db->forEachTask([this](std::shared_ptr<edm::TaskModel> task) {
         insertTask(task);
         return true;
     });
     ui_->taskList_->setUpdatesEnabled(true);
 }
 
-void MainWindow::insertTask(TaskModel const& task) {
+void MainWindow::insertTask(std::shared_ptr<edm::TaskModel> task) {
     auto table = ui_->taskList_;
 
     int row = table->rowCount();
     table->insertRow(row);
 
     // "文件", "大小", "状态", "带宽", "剩余时间", "最后尝试"
-    auto first = new QTableWidgetItem(QString::fromStdString(task.fileName));
-    first->setData(Qt::UserRole, {task.id});
+    auto first = new QTableWidgetItem(QString::fromStdString(task->fileName));
+    first->setData(Qt::UserRole, {task->id});
     table->setItem(row, 0, first);
-    table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(utils::FileSize2String(task.fileSize))));
-    table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(magic_enum::enum_name(task.state).data())));
+    table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(utils::FileSize2String(task->fileSize))));
+    table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(magic_enum::enum_name(task->state).data())));
     table->setItem(row, 3, new QTableWidgetItem(""));
-    table->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(utils::TimeStamp2String(task.firstTry))));
-    table->setItem(row, 5, new QTableWidgetItem(QString::fromStdString(utils::TimeStamp2String(task.lastTry))));
+    table->setItem(
+        row,
+        4,
+        new QTableWidgetItem(QString::fromStdString(time_utils::formatTime(time_utils::toClockTime(task->firstTry))))
+    );
+    table->setItem(
+        row,
+        5,
+        new QTableWidgetItem(QString::fromStdString(time_utils::formatTime(time_utils::toClockTime(task->lastTry))))
+    );
 }
 
-void MainWindow::handleTaskAddedToDatabase(edm::TaskModel const& task) { insertTask(task); }
+void MainWindow::handleTaskAddedToDatabase(std::shared_ptr<edm::TaskModel> task) { insertTask(task); }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (auto tray = EdmApplication::getInstance().getTrayIcon(); tray && tray->isVisible()) {
@@ -242,9 +251,21 @@ void MainWindow::_buildTaskList() {
     )");
 
     // 双击打开任务信息窗口
-    connect(list, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
+    connect(list, &QTableWidget::cellDoubleClicked, this, [this, list](int row, int column) {
         Q_UNUSED(column);
-        onRequestOpenTaskInfoDialog(row);
+        auto item = list->item(row, 0);
+        if (!item) return;
+
+        int     id       = item->data(Qt::UserRole).toInt();
+        QString stateStr = list->item(row, 2)->text();
+
+        // 如果是正在运行、等待、或者暂停状态，打开动态下载窗口
+        if (stateStr == "Running" || stateStr == "Pending" || stateStr == "Paused") {
+            emit EventBus::instance() -> onRequestOpenDownloadingDialog(id);
+        } else {
+            // 否则打开静态的任务信息窗口
+            emit EventBus::instance() -> onRequestOpenTaskInfoDialog(id);
+        }
     });
 
     // 自动设置首列的文件 Icon

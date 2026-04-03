@@ -1,34 +1,11 @@
 #pragma once
 #include "Global.h"
 
+#include <memory>
 #include <string>
-
 
 namespace edm {
 
-enum class Category {
-    Video,       // 视频
-    Audio,       // 音频
-    Compressed,  // 压缩包
-    Document,    // 文档
-    Application, // 应用程序
-    Other        // 其它
-};
-
-enum class TaskState {
-    Pending = 0, // 等待开始
-    Running,     // 正在运行
-    Paused,      // 暂停
-    Canceled,    // 取消
-    Finished,    // 完成
-    Failed,      // 失败(异常)
-};
-
-enum class Resumable {
-    Unknown = -1, // 未知
-    No      = 0,  // 不支持断点续传
-    Yes     = 1   // 支持断点续传
-};
 
 struct TaskModel {
     int            id;             // 主键
@@ -39,8 +16,8 @@ struct TaskModel {
     TaskState      state;          // 任务状态
     BandWidthLimit bandWidthLimit; // 带宽限制 (0: 未设置 | 单位 KB/s)
     int            threadCount;    // 下载线程数 (0 为未设置)
-    TimeStamp      firstTry;       // 首次尝试时间戳
-    TimeStamp      lastTry;        // 最后一次尝试时间戳
+    time_t         firstTry;       // 首次尝试时间戳
+    time_t         lastTry;        // 最后一次尝试时间戳
     std::string    userAgent;      // User-Agent
     Resumable      resumable;      // 是否支持断点续传
     std::string    pageUrl;        // 页面链接
@@ -48,6 +25,14 @@ struct TaskModel {
     std::string    mimeType;       // MIME 类型
     std::string    errorMsg;       // 错误信息
     std::string    saveDir;        // 保存目录
+
+    [[nodiscard]] inline static std::shared_ptr<TaskModel> make() { return std::make_shared<TaskModel>(); }
+
+    template <typename... Args>
+        requires std::constructible_from<TaskModel, Args...>
+    [[nodiscard]] inline static std::shared_ptr<TaskModel> make(Args&&... args) {
+        return std::make_shared<TaskModel>(std::forward<Args>(args)...);
+    }
 };
 
 struct TaskHeaderModel {

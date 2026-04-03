@@ -22,6 +22,8 @@ public slots:
     void handleRequestOpenSettingDialog(bool checked = false) const;
     void handleRequestOpenTaskInfoDialog(int id) const;
     void handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev) const;
+
+    void handleRequestOpenDownloadingDialog(int id) const;
 };
 
 } // namespace edm

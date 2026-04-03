@@ -1,18 +1,19 @@
 #include "DownloadWorker.h"
 #include "CurlEx.h"
-#include "components/ThreadProgressBar.h"
+#include "TaskConfigure.h"
 
+#include <QDebug>
 #include <fmt/format.h>
 
 namespace edm ::downloader {
 
 
 DownloadWorker::DownloadWorker(
-    TaskConfigure                              config,
-    std::string                                outFilePath,
-    std::shared_ptr<components::DownloadRange> range,
-    std::shared_ptr<std::atomic<bool>>         isTaskRunning,
-    std::function<void(bool)>                  onFinished
+    std::shared_ptr<TaskConfigure>     config,
+    std::string                        outFilePath,
+    std::shared_ptr<DownloadRange>     range,
+    std::shared_ptr<std::atomic<bool>> isTaskRunning,
+    std::function<void(bool)>          onFinished
 )
 : config_(std::move(config)),
   outFilePath_(std::move(outFilePath)),
@@ -24,9 +25,9 @@ DownloadWorker::DownloadWorker(
 DownloadWorker::~DownloadWorker() = default;
 
 struct WorkerContext {
-    std::FILE*                 fp;
-    components::DownloadRange* range;
-    std::atomic<bool>*         isTaskRunning;
+    std::FILE*         fp;
+    DownloadRange*     range;
+    std::atomic<bool>* isTaskRunning;
 };
 
 size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
@@ -78,7 +79,8 @@ void DownloadWorker::run() {
 #endif
 
     // 配置 CURL
-    auto curlExRes = config_.newCurl();
+    assert(config_);
+    auto curlExRes = config_->newCurl();
     if (!curlExRes) {
         std::fclose(fp);
         return;

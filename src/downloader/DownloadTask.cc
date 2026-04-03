@@ -1,27 +1,26 @@
 #include "DownloadTask.h"
 
 #include "DownloadWorker.h"
-#include "components/ThreadProgressBar.h"
+#include "TaskConfigure.h"
 
+#include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QThreadPool>
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
-#include <qdebug.h>
-#include <qdir.h>
-#include <qfile.h>
-#include <qfileinfo.h>
-#include <qlogging.h>
 
 namespace edm ::downloader {
 
 constexpr auto TMP_OUT_FILE_EXT = ".edm";
 
-DownloadTask::DownloadTask(TaskModel model, TaskConfigure configure)
+DownloadTask::DownloadTask(std::shared_ptr<edm::TaskModel> model, std::shared_ptr<TaskConfigure> configure)
 : model_(std::move(model)),
   configure_(std::move(configure)),
   isRunningFlag_(std::make_shared<std::atomic<bool>>(false)) {
-    outFilePath_ = fmt::format("{}/{}{}", configure_.saveDir_, model_.fileName, TMP_OUT_FILE_EXT);
+    outFilePath_ = fmt::format("{}/{}{}", configure_->saveDir_, model_->fileName, TMP_OUT_FILE_EXT);
     state_       = TaskState::Pending;
 }
 
@@ -47,7 +46,7 @@ bool DownloadTask::start() {
         ofs.close();
         // 预分配到目标大小
         std::error_code ec;
-        std::filesystem::resize_file(p, model_.fileSize, ec);
+        std::filesystem::resize_file(p, model_->fileSize, ec);
         if (ec) {
             lastError_ = "Failed to pre-allocate disk space: " + ec.message();
             return false;
@@ -56,14 +55,14 @@ bool DownloadTask::start() {
 
     // 切分 Range (如果尚未切分)
     if (ranges_.empty()) {
-        int threads = model_.resumable == Resumable::Yes ? configure_.threadCount_ : 1;
+        int threads = model_->resumable == Resumable::Yes ? configure_->threadCount_ : 1;
         if (threads <= 0) threads = 1;
 
-        qint64 partSize = model_.fileSize / threads;
+        qint64 partSize = model_->fileSize / threads;
         for (int i = 0; i < threads; ++i) {
             qint64 start = i * partSize;
-            qint64 end   = (i == threads - 1) ? (model_.fileSize - 1) : (start + partSize - 1);
-            ranges_.push_back(std::make_shared<components::DownloadRange>(start, end));
+            qint64 end   = (i == threads - 1) ? (model_->fileSize - 1) : (start + partSize - 1);
+            ranges_.push_back(std::make_shared<DownloadRange>(start, end));
         }
     }
 
@@ -71,7 +70,7 @@ bool DownloadTask::start() {
     isRunningFlag_->store(true, std::memory_order_relaxed);
 
     // 更新数据库状态
-    // model_.state = state_;
+    // model_->state = state_;
     // EdmApplication::getInstance().getDatabase()->insertTask(model_);
 
     // 将所有未完成的块派发到线程池
@@ -111,10 +110,10 @@ void DownloadTask::finalizeTask() {
         totalDownloaded += r->downloaded.load(std::memory_order_relaxed);
     }
 
-    if (totalDownloaded < model_.fileSize) {
-        state_       = TaskState::Failed;
-        lastError_   = "Download incomplete, network error.";
-        model_.state = state_;
+    if (totalDownloaded < model_->fileSize) {
+        state_        = TaskState::Failed;
+        lastError_    = "Download incomplete, network error.";
+        model_->state = state_;
         // EdmApplication::getInstance().getDatabase()->insertTask(model_);
         return;
     }
@@ -148,9 +147,9 @@ void DownloadTask::finalizeTask() {
 
     if (QFile::rename(QString::fromStdString(outFilePath_), finalPath)) {
         qDebug() << "File successfully moved to" << finalPath;
-        state_          = TaskState::Finished;
-        model_.fileName = QFileInfo(finalPath).fileName().toStdString(); // 更新为可能重命名后的最终文件名
-        currentSpeed_   = 0.0;
+        state_           = TaskState::Finished;
+        model_->fileName = QFileInfo(finalPath).fileName().toStdString(); // 更新为可能重命名后的最终文件名
+        currentSpeed_    = 0.0;
     } else {
         qDebug() << "Failed to rename file!";
         state_     = TaskState::Failed;
@@ -158,7 +157,7 @@ void DownloadTask::finalizeTask() {
     }
 
     // 更新数据库并保存最终状态
-    model_.state = state_;
+    model_->state = state_;
     // EdmApplication::getInstance().getDatabase()->insertTask(model_);
 }
 
@@ -214,13 +213,13 @@ bool DownloadTask::isRunning() const {
 
 double DownloadTask::getProgress() {
     std::shared_lock<std::shared_mutex> lock{mutex_};
-    if (model_.fileSize <= 0) return 0.0;
+    if (model_->fileSize <= 0) return 0.0;
 
     qint64 totalDownloaded = 0;
     for (const auto& r : ranges_) {
         totalDownloaded += r->downloaded.load(std::memory_order_relaxed);
     }
-    return static_cast<double>(totalDownloaded) / model_.fileSize;
+    return static_cast<double>(totalDownloaded) / model_->fileSize;
 }
 
 void DownloadTask::updateSpeed() {
@@ -235,6 +234,15 @@ void DownloadTask::updateSpeed() {
     }
     currentSpeed_        = static_cast<double>(total - lastDownloadedBytes_); // 因为是 1 秒调用一次，差值就是 speed
     lastDownloadedBytes_ = total;
+}
+
+qint64 DownloadTask::getDownloadedBytes() const {
+    std::shared_lock<std::shared_mutex> lock{mutex_};
+    qint64                              total = 0;
+    for (const auto& r : ranges_) {
+        total += r->downloaded.load(std::memory_order_relaxed);
+    }
+    return total;
 }
 
 double DownloadTask::getSpeed() const {

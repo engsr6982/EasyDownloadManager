@@ -27,10 +27,10 @@ public:
 
     void initDataFromDB();
 
-    void insertTask(TaskModel const& task);
+    void insertTask(std::shared_ptr<edm::TaskModel> task);
 
 private slots:
-    void handleTaskAddedToDatabase(edm::TaskModel const& task);
+    void handleTaskAddedToDatabase(std::shared_ptr<edm::TaskModel> task);
 
 protected:
     void closeEvent(QCloseEvent* event) override;

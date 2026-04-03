@@ -47,12 +47,14 @@ signals:
     /**
      * 数据库新增了任务，通知主界面更新 UI
      */
-    void onTaskAddedToDatabase(edm::TaskModel const& task) const;
+    void onTaskAddedToDatabase(std::shared_ptr<edm::TaskModel> const& task) const;
 
     /**
      * 请求调度器派发/启动任务
      */
-    void onRequestDispatchTask(edm::TaskModel const& task) const;
+    void onRequestDispatchTask(std::shared_ptr<edm::TaskModel> task) const;
+
+    void onRequestOpenDownloadingDialog(int id) const;
 };
 
 } // namespace edm

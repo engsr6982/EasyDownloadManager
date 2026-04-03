@@ -21,8 +21,6 @@ find_package(expected-lite CONFIG REQUIRED)
 
 # --- 源文件列表 ---
 set(PROJECT_SOURCES
-        src/components/ThreadProgressBar.cc
-        src/components/ThreadProgressBar.h
         src/EdmConfig.cc
         src/EdmConfig.h
         src/database/DownloadDatabase.cc
@@ -72,6 +70,8 @@ set(PROJECT_SOURCES
         src/downloader/CurlEx.h
         src/downloader/CurlEx.cc
         src/downloader/FetchedMetaInfo.h
+        src/utils/TimeUtils.h
+        src/dto/TaskContext.h
 )
 
 # --- 创建目标 ---

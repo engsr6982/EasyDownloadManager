@@ -16,7 +16,7 @@ class TaskInformationDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit TaskInformationDialog(TaskModel const& model, QWidget* parent = nullptr);
+    explicit TaskInformationDialog(std::shared_ptr<edm::TaskModel> model, QWidget* parent = nullptr);
     ~TaskInformationDialog();
 
 private:

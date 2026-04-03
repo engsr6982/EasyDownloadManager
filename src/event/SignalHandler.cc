@@ -12,6 +12,8 @@
 #include "ui/task_information/TaskInformationDialog.h"
 
 #include "fmt/format.h"
+#include "model/TaskModel.h"
+#include "ui/task_downloading/TaskDownloadingDialog.h"
 #include "utils/Utils.h"
 
 #include <QApplication>
@@ -35,6 +37,8 @@ SignalHandler::SignalHandler() {
 
     qRegisterMetaType<edm::MetaInfoResultEvent>("edm::MetaInfoResultEvent");
     connect(bus, &EventBus::onTaskMetaInfoFetched, this, &SignalHandler::handleTaskMetaInfoFetched);
+
+    connect(bus, &EventBus::onRequestOpenDownloadingDialog, this, &SignalHandler::handleRequestOpenDownloadingDialog);
 }
 
 
@@ -52,9 +56,10 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     qDebug() << "SignalHandler::handleRequestCreateTask: "
              << fmt::format("url: {}, saveDir: {}, useProxy: {}", url.toStdString(), saveDir.toStdString(), useProxy);
 
-    auto configure = downloader::TaskConfigure::fromUrl(url.toStdString(), saveDir.toStdString(), useProxy);
+    auto configure = TaskConfigure::fromUrl(url.toStdString(), saveDir.toStdString(), useProxy);
 
     // 发起任务信息获取异步任务, 下游组件创建下载任务
+    // todo: 优化，改为直接创建任务，后探测信息
     downloader::MetaInfoFetcher::fetchAsync(configure);
 }
 void SignalHandler::handleRequestOpenSettingDialog(bool checked) const {
@@ -67,7 +72,7 @@ void SignalHandler::handleRequestOpenTaskInfoDialog(int id) const {
     if (!info) {
         return;
     }
-    auto dialog = new TaskInformationDialog{*info, EdmApplication::getInstance().getMainWindow()};
+    auto dialog = new TaskInformationDialog{info, EdmApplication::getInstance().getMainWindow()};
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
 }
@@ -84,7 +89,7 @@ void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev
         return;
     }
 
-    auto info = std::get<downloader::FetchedMetaInfo>(ev.result);
+    auto info = std::get<FetchedMetaInfo>(ev.result);
     qDebug() << "FetchedMetaInfo: "
              << fmt::format(
                     "finalUrl={}, supportRange={}, fileSize={}, contentType={}, etag={}, lastModified={}, "
@@ -111,20 +116,21 @@ void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev
 
     auto& conf = EdmConfig::getInstance();
 
-    TaskModel model{};
-    model.id             = 0;
-    model.url            = info.finalUrl;
-    model.fileName       = fileName;
-    model.fileSize       = info.fileSize.value_or(0);
-    model.category       = utils::resolveFileCategory(fileName);
-    model.state          = TaskState::Pending;
-    model.bandWidthLimit = conf.getBandwidthLimit();
-    model.threadCount    = conf.getThreadCount();
-    model.firstTry       = std::time(nullptr);
-    model.lastTry        = model.firstTry;
-    model.userAgent      = conf.getUserAgent().toStdString();
-    model.resumable      = info.supportRange ? Resumable::Yes : Resumable::No;
-    model.saveDir        = conf.getSaveDir().toStdString();
+    auto model = TaskModel::make();
+
+    model->id             = 0;
+    model->url            = info.finalUrl;
+    model->fileName       = fileName;
+    model->fileSize       = info.fileSize.value_or(0);
+    model->category       = utils::resolveFileCategory(fileName);
+    model->state          = TaskState::Pending;
+    model->bandWidthLimit = conf.getBandwidthLimit();
+    model->threadCount    = conf.getThreadCount();
+    model->firstTry       = std::time(nullptr);
+    model->lastTry        = model->firstTry;
+    model->userAgent      = conf.getUserAgent().toStdString();
+    model->resumable      = info.supportRange ? Resumable::Yes : Resumable::No;
+    model->saveDir        = conf.getSaveDir().toStdString();
 
     // 存入数据库
     EdmApplication::getInstance().getDatabase()->insertTask(model);
@@ -134,6 +140,12 @@ void SignalHandler::handleTaskMetaInfoFetched(edm::MetaInfoResultEvent const& ev
 
     // 通知 Dispatcher 将任务加入调度队列并启动
     emit EventBus::instance() -> onRequestDispatchTask(model);
+}
+
+void SignalHandler::handleRequestOpenDownloadingDialog(int id) const {
+    auto dialog = new TaskDownloadingDialog(id, EdmApplication::getInstance().getMainWindow());
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
 }
 
 

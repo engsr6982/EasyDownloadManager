@@ -4,17 +4,20 @@
 #include <qtclasshelpermacros.h>
 #include <string>
 
-namespace edm ::downloader {
-
+namespace edm {
 struct TaskConfigure;
 struct FetchedMetaInfo;
+}
+
+namespace edm ::downloader {
+
 
 class MetaInfoFetcher final {
-    TaskConfigure& configure_;
+    std::shared_ptr<TaskConfigure> configure_;
 
 public:
     Q_DISABLE_COPY_MOVE(MetaInfoFetcher);
-    explicit MetaInfoFetcher(TaskConfigure& configure);
+    explicit MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure);
     ~MetaInfoFetcher() = default;
 
     /**
@@ -22,7 +25,7 @@ public:
      * @param configure 任务配置
      * @note 任务完成后发出 `onTaskMetaInfoFetched` 信号
      */
-    static void fetchAsync(TaskConfigure configure);
+    static void fetchAsync(std::shared_ptr<TaskConfigure> configure);
 
 
     Expected<FetchedMetaInfo> fetchAll() const;

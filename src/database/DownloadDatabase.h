@@ -18,20 +18,15 @@ class DownloadDatabase {
 public:
     explicit DownloadDatabase();
 
-    void insertTask(TaskModel& task);
+    void insertTask(std::shared_ptr<TaskModel>);
 
-    void insertTaskHeader(TaskHeaderModel const& taskHeader);
+    void insertTaskHeader(std::shared_ptr<TaskHeaderModel> const& taskHeader);
 
-    std::optional<TaskModel> getTaskById(int id) const;
+    std::shared_ptr<TaskModel> getTaskById(int id) const;
 
-    std::optional<TaskHeaderModel> getTaskHeaderById(int id) const;
+    std::shared_ptr<TaskHeaderModel> getTaskHeaderById(int id) const;
 
-    void forEachTask(std::function<bool(TaskModel const&)> const& callback) const;
-
-
-#ifdef EDM_DEBUG
-    void insertFakeTasks(int count);
-#endif
+    void forEachTask(std::function<bool(std::shared_ptr<TaskModel>)> const& callback) const;
 };
 
 } // namespace edm

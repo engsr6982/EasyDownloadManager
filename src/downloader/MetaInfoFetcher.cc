@@ -15,10 +15,10 @@
 namespace edm ::downloader {
 
 class FetchRunnable : public QRunnable {
-    TaskConfigure config_;
+    std::shared_ptr<TaskConfigure> config_;
 
 public:
-    explicit FetchRunnable(TaskConfigure const& configure) : config_(configure) {}
+    explicit FetchRunnable(std::shared_ptr<TaskConfigure> configure) : config_(std::move(configure)) {}
 
     void run() override {
         MetaInfoResultEvent result;
@@ -35,14 +35,14 @@ public:
     }
 };
 
-MetaInfoFetcher::MetaInfoFetcher(TaskConfigure& configure) : configure_(configure) {}
+MetaInfoFetcher::MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure) : configure_(std::move(configure)) {}
 
-void MetaInfoFetcher::fetchAsync(TaskConfigure configure) {
+void MetaInfoFetcher::fetchAsync(std::shared_ptr<TaskConfigure> configure) {
     QThreadPool::globalInstance()->start(new FetchRunnable(std::move(configure)));
 }
 
 Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
-    auto ex_res = configure_.newCurl();
+    auto ex_res = configure_->newCurl();
     if (!ex_res) return forwardError(ex_res.error());
 
     CurlEx curl = std::move(ex_res.value());
@@ -62,7 +62,7 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     if (curl.getInfo(CURLINFO_EFFECTIVE_URL, &fUrl) && fUrl) {
         info.finalUrl = fUrl;
     } else {
-        info.finalUrl = configure_.url_;
+        info.finalUrl = configure_->url_;
     }
 
     // 是否支持 Range 及真实大小

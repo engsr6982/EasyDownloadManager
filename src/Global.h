@@ -7,7 +7,29 @@ using BandWidthLimit = int64_t; // 带宽限制，单位为 kb/s
 
 using FileSize = int64_t; // 文件大小，单位为 byte
 
-using TimeStamp = int64_t; // 时间戳
+enum class Category {
+    Video       = 0, // 视频
+    Audio       = 1, // 音频
+    Compressed  = 2, // 压缩包
+    Document    = 3, // 文档
+    Application = 4, // 应用程序
+    Other       = 5  // 其它
+};
+
+enum class TaskState {
+    Pending  = 0, // 等待开始
+    Running  = 1, // 正在运行
+    Paused   = 2, // 暂停
+    Canceled = 3, // 取消
+    Finished = 4, // 完成
+    Failed   = 5, // 失败(异常)
+};
+
+enum class Resumable {
+    Unknown = -1, // 未知
+    No      = 0,  // 不支持断点续传
+    Yes     = 1   // 支持断点续传
+};
 
 enum class AvailableThreads { k4 = 4, k8 = 8, k16 = 16, k32 = 32 };
 
