@@ -1,8 +1,9 @@
 #pragma once
 #include <qobject.h>
 
+
 namespace edm {
-struct TaskModel;
+struct TaskContext;
 
 struct MetaInfoResultEvent;
 
@@ -22,39 +23,39 @@ public:
 
 signals:
     /**
-     * 请求创建任务对话框 (当对话框接受后，触发 onRequestCreateTask 信号)
+     * 显示新建任务对话框
      */
-    void onRequestOpenNewTaskDialog(bool checked = false) const;
+    void onShowNewTaskDialog(bool checked = false) const;
 
     /**
-     * 请求创建任务 (NewTaskDialog::accept 时发出信号)
+     * 请求创建任务
      * @param url 任务地址
      * @param saveDir 保存路径
      * @param useProxy 是否需要代理
      */
     void onRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const;
 
-    void onRequestOpenSettingDialog(bool checked = false) const; // 请求打开设置对话框
-
-    void onRequestOpenTaskInfoDialog(int id) const; // 请求打开任务信息对话框
+    /**
+     * 任务已创建
+     * @param ctx 任务上下文
+     */
+    void onTaskCreated(std::shared_ptr<edm::TaskContext> ctx);
 
     /**
-     * 任务元信息获取完毕
-     * @param result 结果
+     * 显示设置对话框
      */
-    void onTaskMetaInfoFetched(edm::MetaInfoResultEvent const& result) const;
+    void onShowSettingDialog(bool checked = false) const;
 
     /**
-     * 数据库新增了任务，通知主界面更新 UI
+     * 显示任务信息对话框
+     * @param id 任务 id
      */
-    void onTaskAddedToDatabase(std::shared_ptr<edm::TaskModel> const& task) const;
+    void onShowTaskInfoDialog(int id) const;
 
     /**
-     * 请求调度器派发/启动任务
+     * 显示任务下载中对话框
      */
-    void onRequestDispatchTask(std::shared_ptr<edm::TaskModel> task) const;
-
-    void onRequestOpenDownloadingDialog(int id) const;
+    void onShowDownloadingDialog(int id) const;
 };
 
 } // namespace edm

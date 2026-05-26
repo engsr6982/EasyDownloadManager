@@ -5,6 +5,9 @@
 #include <mutex>
 
 namespace edm {
+struct TaskContext;
+}
+namespace edm {
 
 enum class TaskState;
 struct TaskModel;
@@ -42,7 +45,7 @@ public:
     void cancelTask(int id);
 
 public slots:
-    void handleDispatchTask(std::shared_ptr<edm::TaskModel> task);
+    void handleTaskCreated(std::shared_ptr<edm::TaskContext> task);
 };
 
 } // namespace edm

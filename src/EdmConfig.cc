@@ -94,11 +94,11 @@ void EdmConfig::setThreadCount(int count) {
     settings_.sync();
 }
 
-BandWidthLimit EdmConfig::getBandwidthLimit() const {
+BandLimit EdmConfig::getBandwidthLimit() const {
     return settings_.value(kBandwidthLimit, GlobalDefaults::kDefaultBandwidthLimit).toInt();
 }
 
-void EdmConfig::setBandwidthLimit(BandWidthLimit limit) {
+void EdmConfig::setBandwidthLimit(BandLimit limit) {
     settings_.setValue(kBandwidthLimit, limit);
     settings_.sync();
 }

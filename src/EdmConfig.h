@@ -44,8 +44,8 @@ public:
     void setThreadCount(int count);
 
     // 带宽
-    BandWidthLimit getBandwidthLimit() const;
-    void           setBandwidthLimit(BandWidthLimit limit);
+    BandLimit getBandwidthLimit() const;
+    void           setBandwidthLimit(BandLimit limit);
 
     // User-Agent
     QString getUserAgent() const;

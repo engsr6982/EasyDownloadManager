@@ -3,6 +3,9 @@
 #include <QMainWindow>
 #include <QTimer>
 
+namespace edm {
+struct TaskContext;
+}
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class MainWindow;
@@ -30,7 +33,7 @@ public:
     void insertTask(std::shared_ptr<edm::TaskModel> task);
 
 private slots:
-    void handleTaskAddedToDatabase(std::shared_ptr<edm::TaskModel> task);
+    void handleTaskCreated(std::shared_ptr<edm::TaskContext> ctx);
 
 protected:
     void closeEvent(QCloseEvent* event) override;

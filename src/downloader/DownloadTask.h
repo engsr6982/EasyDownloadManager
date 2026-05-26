@@ -1,29 +1,27 @@
 #pragma once
-#include "model/TaskModel.h"
-
-
 #include <memory>
 #include <optional>
-#include <qtclasshelpermacros.h>
-#include <qtypes.h>
 #include <shared_mutex>
 #include <string>
 #include <vector>
 
+#include <qtclasshelpermacros.h>
+#include <qtypes.h>
+
+
 namespace edm {
-struct TaskConfigure;
-}
+struct TaskContext;
+enum class TaskState;
+} // namespace edm
+
 namespace edm ::downloader {
 
 class MetaInfoFetcher;
 struct DownloadRange;
 
 class DownloadTask final : public std::enable_shared_from_this<DownloadTask> {
-    TaskState                                   state_{TaskState::Pending};
-    std::shared_ptr<TaskConfigure>              configure_;
+    std::shared_ptr<TaskContext>                context_{nullptr};
     mutable std::shared_mutex                   mutex_; // 读写锁
-    std::optional<std::string>                  lastError_{std::nullopt};
-    std::shared_ptr<edm::TaskModel>             model_;
     std::string                                 outFilePath_;
     std::vector<std::shared_ptr<DownloadRange>> ranges_;
     std::shared_ptr<std::atomic<bool>>          isRunningFlag_; // 传给 Worker 控制生命周期
@@ -37,7 +35,7 @@ class DownloadTask final : public std::enable_shared_from_this<DownloadTask> {
 
 public:
     Q_DISABLE_COPY_MOVE(DownloadTask);
-    explicit DownloadTask(std::shared_ptr<edm::TaskModel>, std::shared_ptr<TaskConfigure> configure);
+    explicit DownloadTask(std::shared_ptr<edm::TaskContext> ctx);
     ~DownloadTask();
 
     /**
@@ -96,8 +94,8 @@ public:
     [[nodiscard]] double getSpeed() const;
     void                 updateSpeed();
 
-    // 获取模型原始信息
-    [[nodiscard]] inline std::shared_ptr<edm::TaskModel> getModel() const { return model_; }
+    // 获取任务上下文
+    [[nodiscard]] std::shared_ptr<edm::TaskContext> getTaskContext() const;
 
     // 获取总已下载字节数
     [[nodiscard]] qint64 getDownloadedBytes() const;
@@ -108,7 +106,7 @@ public:
     /**
      * 获取最新的异常信息
      */
-    [[nodiscard]] std::optional<std::string> const& getLastError();
+    [[nodiscard]] std::optional<std::string> getLastError();
 
     /**
      * 获取任务状态

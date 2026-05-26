@@ -65,7 +65,6 @@ set(PROJECT_SOURCES
         src/EdmApplication.cc
         src/EdmApplication.h
         src/main.cpp
-        src/event/Events.h
         src/expected.h
         src/downloader/CurlEx.h
         src/downloader/CurlEx.cc

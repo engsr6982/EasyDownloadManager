@@ -1,8 +1,9 @@
 #pragma once
-#include <QRunnable>
 #include <memory>
-#include <qtclasshelpermacros.h>
 #include <string>
+
+#include <QRunnable>
+#include <QtClassHelperMacros>
 
 namespace edm {
 struct TaskConfigure;

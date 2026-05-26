@@ -74,5 +74,17 @@ inline Category resolveFileCategory(std::string_view fileName) {
     return Category::Other;
 }
 
+inline std::string resolveFileName(std::string_view url) {
+    std::string fileName = kInvalidFileName;
+    auto        pos      = url.find_last_of('/');
+    if (pos != std::string::npos && pos + 1 < url.length()) {
+        fileName = url.substr(pos + 1);
+        // 去除可能的 URL 参数 ?xxx=yyy
+        auto qMark = fileName.find('?');
+        if (qMark != std::string::npos) fileName = fileName.substr(0, qMark);
+    }
+    return fileName;
+}
+
 
 } // namespace edm::utils

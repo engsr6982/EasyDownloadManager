@@ -2,44 +2,14 @@
 #include "CurlEx.h"
 #include "FetchedMetaInfo.h"
 #include "TaskConfigure.h"
-#include "event/EventBus.h"
-#include "event/Events.h"
-#include "utils/Utils.h"
 
-#include <QRunnable>
-#include <QThreadPool>
-#include <format>
 #include <qdebug.h>
-#include <qlogging.h>
 
 namespace edm ::downloader {
 
-class FetchRunnable : public QRunnable {
-    std::shared_ptr<TaskConfigure> config_;
-
-public:
-    explicit FetchRunnable(std::shared_ptr<TaskConfigure> configure) : config_(std::move(configure)) {}
-
-    void run() override {
-        MetaInfoResultEvent result;
-
-        auto expected = MetaInfoFetcher{config_}.fetchAll();
-        if (expected) {
-            result.result = std::move(expected.value());
-        } else {
-            result.result = expected.error().message();
-        }
-
-        // 异步请求完成，通过 Qt 信号槽机制安全扔回主线程
-        emit EventBus::instance() -> onTaskMetaInfoFetched(result);
-    }
-};
 
 MetaInfoFetcher::MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure) : configure_(std::move(configure)) {}
 
-void MetaInfoFetcher::fetchAsync(std::shared_ptr<TaskConfigure> configure) {
-    QThreadPool::globalInstance()->start(new FetchRunnable(std::move(configure)));
-}
 
 Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     auto ex_res = configure_->newCurl();

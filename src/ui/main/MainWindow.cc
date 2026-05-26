@@ -3,6 +3,7 @@
 #include "Dispatcher.h"
 #include "EdmApplication.h"
 #include "database/DownloadDatabase.h"
+#include "dto/TaskContext.h"
 #include "event/EventBus.h"
 #include "model/TaskModel.h"
 #include "ui_MainWindow.h"
@@ -29,7 +30,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainW
     initDataFromDB();
 
     // 任务已创建
-    connect(EventBus::instance(), &EventBus::onTaskAddedToDatabase, this, &MainWindow::handleTaskAddedToDatabase);
+    connect(EventBus::instance(), &EventBus::onTaskCreated, this, &MainWindow::handleTaskCreated);
 }
 
 MainWindow::~MainWindow() { delete ui_; }
@@ -74,7 +75,7 @@ void MainWindow::insertTask(std::shared_ptr<edm::TaskModel> task) {
     );
 }
 
-void MainWindow::handleTaskAddedToDatabase(std::shared_ptr<edm::TaskModel> task) { insertTask(task); }
+void MainWindow::handleTaskCreated(std::shared_ptr<edm::TaskContext> task) { insertTask(task->model); }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (auto tray = EdmApplication::getInstance().getTrayIcon(); tray && tray->isVisible()) {
@@ -90,7 +91,7 @@ void MainWindow::onRequestOpenTaskInfoDialog(int row) {
         return;
     }
     int  id = col->data(Qt::UserRole).toInt();
-    emit EventBus::instance() -> onRequestOpenTaskInfoDialog(id);
+    emit EventBus::instance() -> onShowTaskInfoDialog(id);
 }
 
 
@@ -152,7 +153,7 @@ void MainWindow::_buildToolBar() const {
     auto settings = toolBar->addAction("设置");
 
     // 连接信号
-    connect(newTask, &QAction::triggered, EventBus::instance(), &EventBus::onRequestOpenNewTaskDialog);
+    connect(newTask, &QAction::triggered, EventBus::instance(), &EventBus::onShowNewTaskDialog);
     connect(resumeTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onResumeTask";
         // TODO: impl
@@ -165,7 +166,7 @@ void MainWindow::_buildToolBar() const {
         qDebug() << "[MainWindow] onDeleteTask";
         // TODO: impl
     });
-    connect(settings, &QAction::triggered, EventBus::instance(), &EventBus::onRequestOpenSettingDialog);
+    connect(settings, &QAction::triggered, EventBus::instance(), &EventBus::onShowSettingDialog);
 }
 void MainWindow::_buildFileTree() {
     auto tree = ui_->fileTree_;
@@ -261,10 +262,10 @@ void MainWindow::_buildTaskList() {
 
         // 如果是正在运行、等待、或者暂停状态，打开动态下载窗口
         if (stateStr == "Running" || stateStr == "Pending" || stateStr == "Paused") {
-            emit EventBus::instance() -> onRequestOpenDownloadingDialog(id);
+            emit EventBus::instance() -> onShowDownloadingDialog(id);
         } else {
             // 否则打开静态的任务信息窗口
-            emit EventBus::instance() -> onRequestOpenTaskInfoDialog(id);
+            emit EventBus::instance() -> onShowTaskInfoDialog(id);
         }
     });
 

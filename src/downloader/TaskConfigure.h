@@ -16,7 +16,7 @@ struct TaskConfigure {
     std::string                url_;
     std::string                saveDir_;
     int                        threadCount_;
-    BandWidthLimit             bandWidthLimit_{0}; // 单位：KB/s
+    BandLimit                  bandLimit_{0}; // 单位：KB/s
     std::optional<std::string> userAgent_;
     std::optional<std::string> origin_;
     std::optional<std::string> referer_;

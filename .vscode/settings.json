@@ -1,0 +1,11 @@
+{
+    "cmake.configureArgs": [
+        // "-B",
+        // "./cmake-build-debug",
+        "-DCMAKE_TOOLCHAIN_FILE=D:/Program/VS2022/VC/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "-DCMAKE_PREFIX_PATH=D:/Program/Qt/6.8.3/msvc2022_64"
+    ],
+    "clangd.arguments": [
+        "--compile-commands-dir=build"
+    ]
+}

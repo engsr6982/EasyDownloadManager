@@ -17,6 +17,8 @@ DownloadDatabase::DownloadDatabase() {
 }
 
 void DownloadDatabase::initTables() const {
+    db_->exec("PRAGMA foreign_keys = ON;"); // 开启外键关联约束
+
     // downloads 表
     {
         SQLite::Statement query(
@@ -29,7 +31,7 @@ void DownloadDatabase::initTables() const {
                     fileSize INTEGER NOT NULL,       -- int64
                     category INTEGER NOT NULL,       -- Category 枚举
                     state INTEGER NOT NULL,          -- TaskState 枚举
-                    bandWidthLimit INTEGER NOT NULL,
+                    bandLimit INTEGER NOT NULL,
                     threadCount INTEGER NOT NULL,
                     firstTry INTEGER NOT NULL,       -- int64 时间戳
                     lastTry INTEGER NOT NULL,        -- int64 时间戳
@@ -76,7 +78,7 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
                 fileSize,
                 category,
                 state,
-                bandWidthLimit,
+                bandLimit,
                 threadCount,
                 firstTry,
                 lastTry,
@@ -92,10 +94,10 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
     );
 
     int idx = 1;
-    if (task->id > 0) {
+    if (task->id > kInvalidTaskID) {
         query.bind(idx++, task->id);
     } else {
-        query.bind(idx++, nullptr); // 让 SQLite 自动分配 id
+        query.bind(idx++); // 让 SQLite 自动分配 id
     }
 
     query.bind(idx++, task->url);
@@ -103,7 +105,7 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
     query.bind(idx++, task->fileSize);
     query.bind(idx++, static_cast<int>(task->category));
     query.bind(idx++, static_cast<int>(task->state));
-    query.bind(idx++, task->bandWidthLimit);
+    query.bind(idx++, task->bandLimit);
     query.bind(idx++, task->threadCount);
     query.bind(idx++, task->firstTry);
     query.bind(idx++, task->lastTry);
@@ -118,7 +120,7 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
     query.exec();
 
     // 插入后更新 task->id
-    if (task->id <= 0) {
+    if (task->id <= kInvalidTaskID) {
         task->id = static_cast<int>(db_->getLastInsertRowid());
     }
 }
@@ -157,7 +159,7 @@ std::shared_ptr<TaskModel> DownloadDatabase::getTaskById(int id) const {
                 fileSize,
                 category,
                 state,
-                bandWidthLimit,
+                bandLimit,
                 threadCount,
                 firstTry,
                 lastTry,
@@ -181,24 +183,24 @@ std::shared_ptr<TaskModel> DownloadDatabase::getTaskById(int id) const {
 
     auto task = TaskModel ::make();
 
-    int idx              = 0;
-    task->id             = query.getColumn(idx++).getInt();
-    task->url            = query.getColumn(idx++).getString();
-    task->fileName       = query.getColumn(idx++).getString();
-    task->fileSize       = query.getColumn(idx++).getInt64();
-    task->category       = static_cast<Category>(query.getColumn(idx++).getInt());
-    task->state          = static_cast<TaskState>(query.getColumn(idx++).getInt());
-    task->bandWidthLimit = query.getColumn(idx++).getInt();
-    task->threadCount    = query.getColumn(idx++).getInt();
-    task->firstTry       = query.getColumn(idx++).getInt64();
-    task->lastTry        = query.getColumn(idx++).getInt64();
-    task->userAgent      = query.getColumn(idx++).getString();
-    task->resumable      = static_cast<Resumable>(query.getColumn(idx++).getInt());
-    task->pageUrl        = query.getColumn(idx++).getString();
-    task->pageTitle      = query.getColumn(idx++).getString();
-    task->mimeType       = query.getColumn(idx++).getString();
-    task->errorMsg       = query.getColumn(idx++).getString();
-    task->saveDir        = query.getColumn(idx++).getString();
+    int idx           = 0;
+    task->id          = query.getColumn(idx++).getInt();
+    task->url         = query.getColumn(idx++).getString();
+    task->fileName    = query.getColumn(idx++).getString();
+    task->fileSize    = query.getColumn(idx++).getInt64();
+    task->category    = static_cast<Category>(query.getColumn(idx++).getInt());
+    task->state       = static_cast<TaskState>(query.getColumn(idx++).getInt());
+    task->bandLimit   = query.getColumn(idx++).getInt();
+    task->threadCount = query.getColumn(idx++).getInt();
+    task->firstTry    = query.getColumn(idx++).getInt64();
+    task->lastTry     = query.getColumn(idx++).getInt64();
+    task->userAgent   = query.getColumn(idx++).getString();
+    task->resumable   = static_cast<Resumable>(query.getColumn(idx++).getInt());
+    task->pageUrl     = query.getColumn(idx++).getString();
+    task->pageTitle   = query.getColumn(idx++).getString();
+    task->mimeType    = query.getColumn(idx++).getString();
+    task->errorMsg    = query.getColumn(idx++).getString();
+    task->saveDir     = query.getColumn(idx++).getString();
 
     return task;
 }
@@ -245,7 +247,7 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
                 fileSize,
                 category,
                 state,
-                bandWidthLimit,
+                bandLimit,
                 threadCount,
                 firstTry,
                 lastTry,
@@ -260,27 +262,28 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
         )"
     );
 
-    auto task = TaskModel ::make();
-    int  idx{0};
+    int idx{0};
     while (query.executeStep()) {
-        idx                  = 0;
-        task->id             = query.getColumn(idx++).getInt();
-        task->url            = query.getColumn(idx++).getString();
-        task->fileName       = query.getColumn(idx++).getString();
-        task->fileSize       = query.getColumn(idx++).getInt64();
-        task->category       = static_cast<Category>(query.getColumn(idx++).getInt());
-        task->state          = static_cast<TaskState>(query.getColumn(idx++).getInt());
-        task->bandWidthLimit = query.getColumn(idx++).getInt();
-        task->threadCount    = query.getColumn(idx++).getInt();
-        task->firstTry       = query.getColumn(idx++).getInt64();
-        task->lastTry        = query.getColumn(idx++).getInt64();
-        task->userAgent      = query.getColumn(idx++).getString();
-        task->resumable      = static_cast<Resumable>(query.getColumn(idx++).getInt());
-        task->pageUrl        = query.getColumn(idx++).getString();
-        task->pageTitle      = query.getColumn(idx++).getString();
-        task->mimeType       = query.getColumn(idx++).getString();
-        task->errorMsg       = query.getColumn(idx++).getString();
-        task->saveDir        = query.getColumn(idx++).getString();
+        auto task = TaskModel ::make();
+
+        idx               = 0;
+        task->id          = query.getColumn(idx++).getInt();
+        task->url         = query.getColumn(idx++).getString();
+        task->fileName    = query.getColumn(idx++).getString();
+        task->fileSize    = query.getColumn(idx++).getInt64();
+        task->category    = static_cast<Category>(query.getColumn(idx++).getInt());
+        task->state       = static_cast<TaskState>(query.getColumn(idx++).getInt());
+        task->bandLimit   = query.getColumn(idx++).getInt();
+        task->threadCount = query.getColumn(idx++).getInt();
+        task->firstTry    = query.getColumn(idx++).getInt64();
+        task->lastTry     = query.getColumn(idx++).getInt64();
+        task->userAgent   = query.getColumn(idx++).getString();
+        task->resumable   = static_cast<Resumable>(query.getColumn(idx++).getInt());
+        task->pageUrl     = query.getColumn(idx++).getString();
+        task->pageTitle   = query.getColumn(idx++).getString();
+        task->mimeType    = query.getColumn(idx++).getString();
+        task->errorMsg    = query.getColumn(idx++).getString();
+        task->saveDir     = query.getColumn(idx++).getString();
 
         // 如果回调返回 false，则提前停止遍历
         if (!callback(task)) {
