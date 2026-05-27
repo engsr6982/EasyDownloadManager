@@ -18,21 +18,18 @@ struct EdmApplication::Impl {
     std::unique_ptr<Dispatcher>       dispatcher_{nullptr};
     std::unique_ptr<DownloadDatabase> database_{nullptr};
     std::unique_ptr<MainWindow>       mainWindow_{nullptr};
-    std::unique_ptr<SettingsDialog>   settingsDialog_{nullptr};
     std::unique_ptr<QSystemTrayIcon>  trayIcon_{nullptr};
 
     void init() {
         database_       = std::make_unique<DownloadDatabase>();
         dispatcher_     = std::make_unique<Dispatcher>();
         mainWindow_     = std::make_unique<MainWindow>();
-        settingsDialog_ = std::make_unique<SettingsDialog>(mainWindow_.get());
 
         _initSystemTrayIcon();
     }
 
     void destroy() {
         trayIcon_.reset();
-        settingsDialog_.reset();
         mainWindow_.reset();
         dispatcher_.reset();
         database_.reset();
@@ -83,19 +80,8 @@ void EdmApplication::destroyApp() { impl->destroy(); }
 
 MainWindow*       EdmApplication::getMainWindow() const { return impl->mainWindow_.get(); }
 Dispatcher*       EdmApplication::getDispatcher() const { return impl->dispatcher_.get(); }
-SettingsDialog*   EdmApplication::getSettingsDialog() const { return impl->settingsDialog_.get(); }
 QSystemTrayIcon*  EdmApplication::getTrayIcon() const { return impl->trayIcon_.get(); }
 DownloadDatabase* EdmApplication::getDatabase() const { return impl->database_.get(); }
-
-
-void EdmApplication::tryShowSettingDialog() const {
-    if (impl->settingsDialog_->isVisible()) {
-        impl->settingsDialog_->raise();
-        impl->settingsDialog_->activateWindow();
-    } else {
-        impl->settingsDialog_->show();
-    }
-}
 
 
 } // namespace edm

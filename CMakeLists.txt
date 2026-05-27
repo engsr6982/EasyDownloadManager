@@ -29,6 +29,9 @@ set(PROJECT_SOURCES
         src/downloader/DownloadTask.h
         src/downloader/DownloadWorker.cc
         src/downloader/DownloadWorker.h
+        src/downloader/DownloadState.h
+        src/downloader/FileVerifier.cc
+        src/downloader/FileVerifier.h
         src/downloader/TaskConfigure.h
         src/downloader/TaskConfigure.cc
         src/downloader/MetaInfoFetcher.cc
@@ -110,6 +113,10 @@ target_link_libraries(EasyDownloadManager PRIVATE
         CURL::libcurl
         fmt::fmt
 )
+
+if (WIN32)
+    target_link_libraries(EasyDownloadManager PRIVATE bcrypt)
+endif()
 
 # --- 平台特定设置 ---
 set_target_properties(EasyDownloadManager PROPERTIES

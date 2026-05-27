@@ -7,7 +7,7 @@
 namespace edm {
 
 struct TaskModel {
-    TaskPrimaryKeyID id{kInvalidTaskID};               // 主键
+    TaskId id{kInvalidTaskID};               // 主键
     std::string      url;                              // 下载链接
     std::string      fileName{kInvalidFileName};       // 文件名
     FileSize         fileSize{kInvalidFileSize};       // 文件大小 (byte)
@@ -15,8 +15,9 @@ struct TaskModel {
     TaskState        state{kInvalidTaskState};         // 任务状态
     BandLimit        bandLimit{kInvalidBandLimit};     // 带宽限制 (0: 未设置 | 单位 KB/s)
     int              threadCount{kInvalidThreadCount}; // 下载线程数 (0 为未设置)
-    time_t           firstTry;                         // 首次尝试时间戳
-    time_t           lastTry;                          // 最后一次尝试时间戳
+    int              retryCount{3};                    // 单分片失败重试次数
+    time_t           firstTry{0};                      // 首次尝试时间戳
+    time_t           lastTry{0};                       // 最后一次尝试时间戳
     std::string      userAgent;                        // User-Agent
     Resumable        resumable{kInvalidResumable};     // 是否支持断点续传
     std::string      pageUrl;                          // 页面链接
@@ -35,7 +36,7 @@ struct TaskModel {
 };
 
 struct TaskHeaderModel {
-    TaskPrimaryKeyID id{kInvalidTaskID}; // 主键(与 TaskModel 一致)
+    TaskId id{kInvalidTaskID}; // 主键(与 TaskModel 一致)
     std::string      origin;             // Origin
     std::string      cookie;             // Cookie
     std::string      referer;            // Referer

@@ -17,7 +17,7 @@ struct CurlCodeError : IErrorInfo {
 class CurlEx {
     CURL* curl_{nullptr};
 
-    curl_slist*              headers_;
+    curl_slist*              headers_{nullptr};
     std::vector<std::string> rawHeaders_; // 持久化 const char*
 
     mutable Expected<> status_{};

@@ -4,18 +4,32 @@
 #include "EdmConfig.h"
 #include "model/TaskModel.h"
 
+#include <regex>
+
 namespace edm {
+
+namespace {
+std::optional<std::string> originFromUrl(std::string const& url) {
+    static const std::regex re(R"re(^([a-zA-Z][a-zA-Z0-9+.-]*://[^/]+))re");
+    std::smatch             match;
+    if (std::regex_search(url, match, re) && match.size() > 1) {
+        return match[1].str();
+    }
+    return std::nullopt;
+}
+} // namespace
 
 
 TaskConfigure::TaskConfigure(std::shared_ptr<edm::TaskModel> model) noexcept {
-    url_            = model->url;
-    saveDir_        = model->saveDir;
-    threadCount_    = model->threadCount;
-    bandLimit_ = model->bandLimit;
-    userAgent_      = model->userAgent;
-    // origin_ = ; // TODO: impl
-    // referer_ = ;
-    // cookie_ = ;
+    url_         = model->url;
+    saveDir_     = model->saveDir;
+    threadCount_ = model->threadCount;
+    bandLimit_   = model->bandLimit;
+    retryCount_  = model->retryCount;
+    userAgent_   = model->userAgent;
+    origin_      = originFromUrl(model->url);
+    if (!model->pageUrl.empty()) referer_ = model->pageUrl;
+    // cookie_ = ; // TODO: fix
     mimeType_ = model->mimeType;
     proxyUrl_ = EdmConfig::getInstance().getProxyConfig().toProxyUrl();
 }
@@ -23,8 +37,10 @@ TaskConfigure::TaskConfigure(std::shared_ptr<edm::TaskModel> model) noexcept {
 Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
     auto curl = downloader::CurlEx{};
 
-    curl.setOpt(CURLOPT_URL, url_.c_str())   // 设置地址
-        .setOpt(CURLOPT_FOLLOWLOCATION, 1L); // 跟随重定向
+    curl.setOpt(CURLOPT_URL, url_.c_str())  // 设置地址
+        .setOpt(CURLOPT_FOLLOWLOCATION, 1L) // 跟随重定向
+        .setOpt(CURLOPT_NOSIGNAL, 1L)
+        .setOpt(CURLOPT_FAILONERROR, 1L);
 
     if (userAgent_) {
         curl.setOpt(CURLOPT_USERAGENT, userAgent_->c_str()); // 设置 User-Agent
@@ -48,7 +64,7 @@ Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
 
     if (bandLimit_ > 0) {
         auto speedLimit = static_cast<curl_off_t>(bandLimit_) * 1024; // KB/s 转换为 B/s
-        curl.setOpt(CURLOPT_MAX_RECV_SPEED_LARGE, speedLimit);             // 设置下载速度限制
+        curl.setOpt(CURLOPT_MAX_RECV_SPEED_LARGE, speedLimit);        // 设置下载速度限制
     }
 
     if (!curl.status()) return makeStringError(curl.status().error().message());
@@ -57,9 +73,9 @@ Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
 
 std::shared_ptr<TaskConfigure>
 TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, bool useProxy) {
-    auto configure      = std::make_shared<TaskConfigure>();
-    configure->url_     = url;
-    configure->saveDir_ = saveDir;
+    auto configure          = std::make_shared<TaskConfigure>();
+    configure->url_         = url;
+    configure->saveDir_     = saveDir;
 
     auto& conf = EdmConfig::getInstance();
 

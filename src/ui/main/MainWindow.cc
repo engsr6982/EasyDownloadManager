@@ -1,21 +1,28 @@
 #include "MainWindow.h"
+#include "ui_MainWindow.h"
 
 #include "Dispatcher.h"
 #include "EdmApplication.h"
 #include "database/DownloadDatabase.h"
+#include "downloader/DownloadState.h"
 #include "dto/TaskContext.h"
 #include "event/EventBus.h"
 #include "model/TaskModel.h"
-#include "ui_MainWindow.h"
 #include "utils/IconUtils.h"
 #include "utils/TimeUtils.h"
 #include "utils/Utils.h"
+
+#include "ui/new_task/NewTaskDialog.h"
+#include "ui/settings/SettingsDialog.h"
+#include "ui/task_downloading/TaskDownloadingDialog.h"
+#include "ui/task_information/TaskInformationDialog.h"
 
 #include <QCloseEvent>
 #include <QSystemTrayIcon>
 #include <magic_enum/magic_enum.hpp>
 #include <qfileiconprovider.h>
 #include <qmenu.h>
+#include <qmessagebox.h>
 #include <qstandarditemmodel.h>
 #include <qtoolbar.h>
 
@@ -24,6 +31,7 @@ namespace edm {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainWindow) {
     ui_->setupUi(this);
+    settingsDialog_ = new SettingsDialog{this};
 
     _setupLayout(); // 初始化布局
 
@@ -44,7 +52,7 @@ void MainWindow::initDataFromDB() {
     assert(db != nullptr);
     ui_->taskList_->setUpdatesEnabled(false);
     db->forEachTask([this](std::shared_ptr<edm::TaskModel> task) {
-        insertTask(task);
+        insertTask(task); // TODO: 滚动列表优化
         return true;
     });
     ui_->taskList_->setUpdatesEnabled(true);
@@ -75,7 +83,16 @@ void MainWindow::insertTask(std::shared_ptr<edm::TaskModel> task) {
     );
 }
 
-void MainWindow::handleTaskCreated(std::shared_ptr<edm::TaskContext> task) { insertTask(task->model); }
+void MainWindow::handleTaskCreated(std::shared_ptr<edm::TaskContext> task) {
+    insertTask(task->model);
+    if (auto state = EdmApplication::getInstance().getDispatcher()->getTaskState(task->model->id)) {
+        taskStates_[task->model->id] = state;
+    }
+
+    auto dialog = new TaskDownloadingDialog(task->model->id, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
+}
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (auto tray = EdmApplication::getInstance().getTrayIcon(); tray && tray->isVisible()) {
@@ -85,15 +102,6 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         QMainWindow::closeEvent(event);
     }
 }
-void MainWindow::onRequestOpenTaskInfoDialog(int row) {
-    auto col = ui_->taskList_->item(row, 0);
-    if (!col) {
-        return;
-    }
-    int  id = col->data(Qt::UserRole).toInt();
-    emit EventBus::instance() -> onShowTaskInfoDialog(id);
-}
-
 
 void MainWindow::_setupLayout() {
     setWindowTitle("EasyDownloadManager"); // 设置窗口标题
@@ -113,31 +121,41 @@ void MainWindow::_setupLayout() {
 
         // 遍历当前 UI 列表，更新显示
         auto table = ui_->taskList_;
+
+        bool wasSorting = table->isSortingEnabled();
+        table->setSortingEnabled(false);
+
         for (int row = 0; row < table->rowCount(); ++row) {
             auto item = table->item(row, 0);
             if (!item) continue;
 
-            int  id       = item->data(Qt::UserRole).toInt();
-            auto snapshot = dispatcher->getTaskSnapshot(id);
-            if (snapshot) {
+            int id = item->data(Qt::UserRole).toInt();
+            if (!taskStates_.contains(id)) {
+                if (auto state = dispatcher->getTaskState(id)) taskStates_[id] = state;
+            }
+
+            auto it = taskStates_.find(id);
+            if (it != taskStates_.end()) {
+                auto state     = it->second;
+                auto taskState = state->state();
                 // 更新状态文本
-                table->item(row, 2)->setText(QString::fromStdString(magic_enum::enum_name(snapshot->state).data()));
+                table->item(row, 2)->setText(QString::fromStdString(magic_enum::enum_name(taskState).data()));
 
                 // 更新速度
-                if (snapshot->state == TaskState::Running) {
-                    QString speedStr = QString::fromStdString(utils::FileSize2String(snapshot->speed)) + "/s";
+                if (taskState == TaskState::Running) {
+                    QString speedStr = QString::fromStdString(utils::FileSize2String(state->speed())) + "/s";
                     table->item(row, 3)->setText(speedStr);
-
-                    // TODO: 计算剩余时间
                 } else {
                     table->item(row, 3)->setText(""); // 停止或完成则清空速度
                 }
             }
         }
+
+        table->setSortingEnabled(wasSorting);
     });
     uiUpdateTimer_->start();
 }
-void MainWindow::_buildToolBar() const {
+void MainWindow::_buildToolBar() {
     auto toolBar = ui_->mainToolBar_;
     toolBar->setMovable(false); // 工具栏不可移动
     auto newTask    = toolBar->addAction("新建");
@@ -153,10 +171,21 @@ void MainWindow::_buildToolBar() const {
     auto settings = toolBar->addAction("设置");
 
     // 连接信号
-    connect(newTask, &QAction::triggered, EventBus::instance(), &EventBus::onShowNewTaskDialog);
-    connect(resumeTask, &QAction::triggered, this, []() {
+    connect(newTask, &QAction::triggered, EventBus::instance(), [this]() {
+        auto dialog = new NewTaskDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+    connect(resumeTask, &QAction::triggered, this, [this]() {
         qDebug() << "[MainWindow] onResumeTask";
-        // TODO: impl
+        if (auto col = ui_->taskList_->item(ui_->taskList_->currentRow(), 0)) {
+            TaskId id = col->data(Qt::UserRole).toInt();
+            if (!EdmApplication::getInstance().getDispatcher()->resumeTask(id)) {
+                QMessageBox::warning(this, "ERROR", "恢复任务失败!");
+            }
+        } else {
+            QMessageBox::warning(this, "错误", "未找到要操作的任务，请先选中任务");
+        }
     });
     connect(stopTask, &QAction::triggered, this, []() {
         qDebug() << "[MainWindow] onStopTask";
@@ -166,7 +195,14 @@ void MainWindow::_buildToolBar() const {
         qDebug() << "[MainWindow] onDeleteTask";
         // TODO: impl
     });
-    connect(settings, &QAction::triggered, EventBus::instance(), &EventBus::onShowSettingDialog);
+    connect(settings, &QAction::triggered, EventBus::instance(), [this]() {
+        if (settingsDialog_->isVisible()) {
+            settingsDialog_->raise();
+            settingsDialog_->activateWindow();
+        } else {
+            settingsDialog_->show();
+        }
+    });
 }
 void MainWindow::_buildFileTree() {
     auto tree = ui_->fileTree_;
@@ -257,15 +293,12 @@ void MainWindow::_buildTaskList() {
         auto item = list->item(row, 0);
         if (!item) return;
 
-        int     id       = item->data(Qt::UserRole).toInt();
-        QString stateStr = list->item(row, 2)->text();
-
-        // 如果是正在运行、等待、或者暂停状态，打开动态下载窗口
-        if (stateStr == "Running" || stateStr == "Pending" || stateStr == "Paused") {
-            emit EventBus::instance() -> onShowDownloadingDialog(id);
-        } else {
-            // 否则打开静态的任务信息窗口
-            emit EventBus::instance() -> onShowTaskInfoDialog(id);
+        TaskId id    = item->data(Qt::UserRole).toInt();
+        auto   model = EdmApplication::getInstance().getDispatcher()->getTaskModel(id);
+        if (model) {
+            auto dialog = new TaskInformationDialog{model, this};
+            dialog->setAttribute(Qt::WA_DeleteOnClose);
+            dialog->show();
         }
     });
 
@@ -289,7 +322,7 @@ void MainWindow::_buildTaskList() {
         menu.addAction("重新下载", [this, list, pos]() {
             // TODO: impl
         });
-        menu.addAction("显示窗口", [this, list, pos]() {
+        menu.addAction("下载窗口", [this, list, pos]() {
             // TODO: impl
         });
         menu.addSeparator();
@@ -307,7 +340,18 @@ void MainWindow::_buildTaskList() {
             // TODO: impl
         });
         menu.addSeparator();
-        menu.addAction("属性", [this, list]() { onRequestOpenTaskInfoDialog(list->currentRow()); });
+        menu.addAction("属性", [this, list]() {
+            if (auto col = ui_->taskList_->item(list->currentRow(), 0)) {
+                TaskId id = col->data(Qt::UserRole).toInt();
+
+                auto model = EdmApplication::getInstance().getDispatcher()->getTaskModel(id);
+                if (model) {
+                    auto dialog = new TaskInformationDialog{model, this};
+                    dialog->setAttribute(Qt::WA_DeleteOnClose);
+                    dialog->show();
+                }
+            }
+        });
 
         menu.exec(list->viewport()->mapToGlobal(pos));
     });

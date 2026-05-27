@@ -2,47 +2,42 @@
 #include "model/TaskModel.h"
 
 #include <QObject>
+#include <memory>
 #include <mutex>
+#include <unordered_map>
+
 
 namespace edm {
+
 struct TaskContext;
-}
-namespace edm {
-
-enum class TaskState;
 struct TaskModel;
+
 namespace downloader {
-struct DownloadRange;
+class DownloadState;
 class DownloadTask;
 } // namespace downloader
+
 
 class Dispatcher : public QObject {
     Q_OBJECT
 
-    std::unordered_map<int, std::shared_ptr<downloader::DownloadTask>> activeTasks_;
-    std::mutex                                                         tasksMutex_;
+    std::unordered_map<TaskId, std::shared_ptr<downloader::DownloadTask>> activeTasks_;
+    std::mutex                                                            tasksMutex_;
 
 public:
     explicit Dispatcher();
     ~Dispatcher() override;
 
-    struct TaskSnapshot {
-        std::shared_ptr<edm::TaskModel>                         model;
-        TaskState                                               state;
-        qint64                                                  downloadedBytes;
-        double                                                  speed; // byte/s
-        std::vector<std::shared_ptr<downloader::DownloadRange>> ranges;
-    };
+    std::shared_ptr<downloader::DownloadState> getTaskState(TaskId id);
+    std::shared_ptr<TaskModel> getTaskModel(TaskId id);
 
-    // 获取正在运行任务的快照
-    std::optional<TaskSnapshot> getTaskSnapshot(int id);
-
-    // 供 Timer 定时调用，让所有的 Task 更新一次速度计算
     void updateAllSpeeds();
 
-    void pauseTask(int id);
-    void resumeTask(int id);
-    void cancelTask(int id);
+    void updateSpeed(TaskId id);
+
+    bool pauseTask(TaskId id);
+    bool resumeTask(TaskId id);
+    bool cancelTask(TaskId id);
 
 public slots:
     void handleTaskCreated(std::shared_ptr<edm::TaskContext> task);

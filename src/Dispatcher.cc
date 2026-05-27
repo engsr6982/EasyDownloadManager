@@ -1,5 +1,7 @@
 #include "Dispatcher.h"
 
+#include "EdmApplication.h"
+#include "database/DownloadDatabase.h"
 #include "downloader/DownloadTask.h"
 #include "downloader/TaskConfigure.h"
 #include "dto/TaskContext.h"
@@ -21,21 +23,24 @@ Dispatcher::Dispatcher() {
 Dispatcher::~Dispatcher() = default;
 
 
-std::optional<Dispatcher::TaskSnapshot> Dispatcher::getTaskSnapshot(int id) {
+std::shared_ptr<downloader::DownloadState> Dispatcher::getTaskState(TaskId id) {
     std::lock_guard<std::mutex> lock(tasksMutex_);
     auto                        it = activeTasks_.find(id);
-    if (it != activeTasks_.end()) {
-        auto task = it->second;
-        return TaskSnapshot{
-            task->getTaskContext()->model,
-            task->getState(),
-            task->getDownloadedBytes(),
-            task->getSpeed(),
-            task->getRanges()
-        };
-    }
-    return std::nullopt;
+    if (it == activeTasks_.end()) return nullptr;
+    return it->second->getStateObject();
 }
+std::shared_ptr<TaskModel> Dispatcher::getTaskModel(TaskId id) {
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+
+        auto it = activeTasks_.find(id);
+        if (it != activeTasks_.end()) {
+            return it->second->getTaskContext()->model;
+        }
+    }
+    return EdmApplication::getInstance().getDatabase()->getTaskById(id);
+}
+
 void Dispatcher::updateAllSpeeds() {
     std::lock_guard<std::mutex> lock(tasksMutex_);
     for (auto& [id, task] : activeTasks_) {
@@ -43,19 +48,43 @@ void Dispatcher::updateAllSpeeds() {
     }
 }
 
-void Dispatcher::pauseTask(int id) {
+void Dispatcher::updateSpeed(TaskId id) {
     std::lock_guard<std::mutex> lock(tasksMutex_);
-    if (activeTasks_.contains(id)) activeTasks_.at(id)->pause();
+
+    auto iter = activeTasks_.find(id);
+    if (iter != activeTasks_.end()) {
+        iter->second->updateSpeed();
+    }
 }
 
-void Dispatcher::resumeTask(int id) {
+bool Dispatcher::pauseTask(TaskId id) {
     std::lock_guard<std::mutex> lock(tasksMutex_);
-    if (activeTasks_.contains(id)) activeTasks_.at(id)->resume();
+
+    auto iter = activeTasks_.find(id);
+    if (iter != activeTasks_.end()) {
+        return activeTasks_.at(id)->pause();
+    }
+    return false;
 }
 
-void Dispatcher::cancelTask(int id) {
+bool Dispatcher::resumeTask(TaskId id) {
     std::lock_guard<std::mutex> lock(tasksMutex_);
-    if (activeTasks_.contains(id)) activeTasks_.at(id)->cancel();
+
+    auto iter = activeTasks_.find(id);
+    if (iter != activeTasks_.end()) {
+        return activeTasks_.at(id)->resume();
+    }
+    return false;
+}
+
+bool Dispatcher::cancelTask(TaskId id) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+
+    auto iter = activeTasks_.find(id);
+    if (iter != activeTasks_.end()) {
+        return activeTasks_.at(id)->cancel();
+    }
+    return false;
 }
 
 void Dispatcher::handleTaskCreated(std::shared_ptr<edm::TaskContext> task) {
@@ -67,10 +96,17 @@ void Dispatcher::handleTaskCreated(std::shared_ptr<edm::TaskContext> task) {
     }
 
     // 从 Model 转换为 Configure
-    auto config = std::make_shared<TaskConfigure>(task->model);
+    if (!task->configure) {
+        task->configure = std::make_shared<TaskConfigure>(task->model);
+    }
 
     // 实例化真正的下载任务大脑
-    auto downloadTask = std::make_shared<downloader::DownloadTask>(task);
+    auto downloadTask =
+        std::make_shared<downloader::DownloadTask>(task, [](std::shared_ptr<edm::TaskContext> const& ctx) {
+            if (ctx && ctx->model) {
+                EdmApplication::getInstance().getDatabase()->insertTask(ctx->model);
+            }
+        });
 
     // 启动
     if (downloadTask->start()) {

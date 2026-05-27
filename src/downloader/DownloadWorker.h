@@ -1,9 +1,12 @@
 #pragma once
-#include <memory>
-#include <string>
+#include "expected.h"
 
-#include <QRunnable>
-#include <QtClassHelperMacros>
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
 
 namespace edm {
 struct TaskConfigure;
@@ -11,35 +14,28 @@ struct TaskConfigure;
 
 namespace edm ::downloader {
 
-struct DownloadRange {
-    int64_t              start{0};
-    int64_t              end{0};
-    std::atomic<int64_t> downloaded{0};
+struct DownloadRange;
 
-    DownloadRange(int64_t s, int64_t e) : start(s), end(e), downloaded(0) {}
-};
-
-class DownloadWorker final : public QRunnable {
+class DownloadWorker final {
     std::shared_ptr<TaskConfigure>     config_;
     std::string                        outFilePath_;
-    std::shared_ptr<DownloadRange>     range_;
     std::shared_ptr<std::atomic<bool>> isTaskRunning_; // 用于接收上层的暂停/取消指令
 
-    std::function<void(bool success)> onFinished_;
-
 public:
-    Q_DISABLE_COPY_MOVE(DownloadWorker)
-
     DownloadWorker(
         std::shared_ptr<TaskConfigure>     config,
         std::string                        outFilePath,
-        std::shared_ptr<DownloadRange>     range,
-        std::shared_ptr<std::atomic<bool>> isTaskRunning,
-        std::function<void(bool)>          onFinished
+        std::shared_ptr<std::atomic<bool>> isTaskRunning
     );
-    ~DownloadWorker() override;
+    ~DownloadWorker();
 
-    void run() override;
+    DownloadWorker(const DownloadWorker&)            = delete;
+    DownloadWorker& operator=(const DownloadWorker&) = delete;
+    DownloadWorker(DownloadWorker&&)                 = delete;
+    DownloadWorker& operator=(DownloadWorker&&)      = delete;
+
+    [[nodiscard]] Expected<> downloadRange(std::shared_ptr<DownloadRange> const& range) const;
+    [[nodiscard]] Expected<> downloadWholeFile(std::shared_ptr<DownloadRange> const& range) const;
 
 private:
     static size_t writeCallback(char* ptr, size_t size, size_t nmemb, void* userdata);

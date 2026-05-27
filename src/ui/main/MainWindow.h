@@ -1,10 +1,11 @@
 #pragma once
-
 #include <QMainWindow>
 #include <QTimer>
+#include <memory>
+#include <unordered_map>
 
 namespace edm {
-struct TaskContext;
+class SettingsDialog;
 }
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -16,14 +17,19 @@ class QStandardItemModel;
 
 namespace edm {
 
+namespace downloader {
+class DownloadState;
+}
+
 struct TaskModel;
+struct TaskContext;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     MainWindow(QWidget* parent = nullptr);
-    ~MainWindow();
+    ~MainWindow() override;
 
     void hideFileTree() const;
     void showFileTree() const;
@@ -38,16 +44,16 @@ private slots:
 protected:
     void closeEvent(QCloseEvent* event) override;
 
-    void onRequestOpenTaskInfoDialog(int row);
-
 private:
     void _setupLayout();
-    void _buildToolBar() const;
+    void _buildToolBar();
     void _buildFileTree();
     void _buildTaskList();
 
-    Ui::MainWindow* ui_{nullptr};
-    QTimer*         uiUpdateTimer_{nullptr};
+    Ui::MainWindow*                                                     ui_{nullptr};
+    SettingsDialog*                                                     settingsDialog_{nullptr};
+    QTimer*                                                             uiUpdateTimer_{nullptr};
+    std::unordered_map<int, std::shared_ptr<downloader::DownloadState>> taskStates_;
 };
 
 } // namespace edm

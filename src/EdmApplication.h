@@ -33,11 +33,8 @@ public:
 
     [[nodiscard]] MainWindow*       getMainWindow() const;
     [[nodiscard]] Dispatcher*       getDispatcher() const;
-    [[nodiscard]] SettingsDialog*   getSettingsDialog() const;
     [[nodiscard]] QSystemTrayIcon*  getTrayIcon() const;
     [[nodiscard]] DownloadDatabase* getDatabase() const;
-
-    void tryShowSettingDialog() const;
 };
 
 } // namespace edm

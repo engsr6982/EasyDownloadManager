@@ -18,13 +18,22 @@ void CurlEx::cleanup() {
 CurlEx::CurlEx() : curl_(curl_easy_init()) {}
 CurlEx::~CurlEx() { cleanup(); }
 
-CurlEx::CurlEx(CurlEx&& o) noexcept : curl_(o.curl_) { o.curl_ = nullptr; }
+CurlEx::CurlEx(CurlEx&& o) noexcept
+: curl_(o.curl_),
+  headers_(o.headers_),
+  rawHeaders_(std::move(o.rawHeaders_)),
+  status_(std::move(o.status_)) {
+    o.curl_    = nullptr;
+    o.headers_ = nullptr;
+}
 
 CurlEx& CurlEx::operator=(CurlEx&& o) noexcept {
     if (this != &o) {
         cleanup();
         curl_      = o.curl_;
         headers_   = o.headers_;
+        rawHeaders_ = std::move(o.rawHeaders_);
+        status_     = std::move(o.status_);
         o.curl_    = nullptr;
         o.headers_ = nullptr;
     }

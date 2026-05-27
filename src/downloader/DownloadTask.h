@@ -1,116 +1,82 @@
 #pragma once
+#include "DownloadState.h"
+
+#include <atomic>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <vector>
-
-#include <qtclasshelpermacros.h>
-#include <qtypes.h>
-
 
 namespace edm {
 struct TaskContext;
 enum class TaskState;
 } // namespace edm
 
-namespace edm ::downloader {
-
-class MetaInfoFetcher;
-struct DownloadRange;
+namespace edm::downloader {
 
 class DownloadTask final : public std::enable_shared_from_this<DownloadTask> {
-    std::shared_ptr<TaskContext>                context_{nullptr};
-    mutable std::shared_mutex                   mutex_; // 读写锁
-    std::string                                 outFilePath_;
-    std::vector<std::shared_ptr<DownloadRange>> ranges_;
-    std::shared_ptr<std::atomic<bool>>          isRunningFlag_; // 传给 Worker 控制生命周期
+public:
+    using StateChangedCallback = std::function<void(std::shared_ptr<edm::TaskContext> const&)>;
 
-    // 活跃的 Worker 数量 和 速度计算
+private:
+    std::shared_ptr<TaskContext>       context_{nullptr};
+    std::shared_ptr<DownloadState>     state_{std::make_shared<DownloadState>()};
+    StateChangedCallback               onStateChanged_;
+    mutable std::shared_mutex          mutex_;
+    std::string                        outFilePath_;
+    std::string                        metaFilePath_;
+    std::shared_ptr<std::atomic<bool>> isRunningFlag_;
+    std::atomic<bool>                  cancelRequested_{false};
+    std::atomic<size_t>                nextRangeIndex_{0};
+
     std::atomic<int> activeWorkers_{0};
-    qint64           lastDownloadedBytes_{0};
-    double           currentSpeed_{0.0}; // byte/s
+    int64_t          lastDownloadedBytes_{0};
+    double           currentSpeed_{0.0};
+    std::vector<std::thread> workers_;
 
-    void finalizeTask(); // 任务完成后的收尾工作
+    [[nodiscard]] bool prepareTask();
+    void               rebuildRanges();
+    [[nodiscard]] bool loadProgress();
+    void               saveProgress() const;
+    void               launchWorkers();
+    void               workerLoop();
+    void               joinWorkers();
+    void               finalizeTask();
+    void               setState(TaskState state);
+    void               setError(std::string message);
+    void               notifyStateChanged() const;
 
 public:
-    Q_DISABLE_COPY_MOVE(DownloadTask);
-    explicit DownloadTask(std::shared_ptr<edm::TaskContext> ctx);
+    DownloadTask(const DownloadTask&)            = delete;
+    DownloadTask& operator=(const DownloadTask&) = delete;
+    DownloadTask(DownloadTask&&)                 = delete;
+    DownloadTask& operator=(DownloadTask&&)      = delete;
+
+    explicit DownloadTask(std::shared_ptr<edm::TaskContext> ctx, StateChangedCallback onStateChanged = {});
     ~DownloadTask();
 
-    /**
-     * 启动任务
-     */
     [[nodiscard]] bool start();
-
-    /**
-     * 暂停任务
-     * @note 暂停任务，并抛弃当前内存中未完成的残缺分片(磁盘中的分片不受影响)
-     */
     [[nodiscard]] bool pause();
-
-    /**
-     * 恢复任务
-     * @note 恢复中断的任务(即任务被暂停过)，将会从上次暂停的位置继续下载
-     */
     [[nodiscard]] bool resume();
-
-    /**
-     * 取消任务
-     * @note 取消任务后，将会清理分段文件，无法恢复(仅能重新启动)
-     */
     [[nodiscard]] bool cancel();
 
-    /**
-     * 判断任务是否完成
-     * @return 任务是否完成
-     */
     [[nodiscard]] bool isFinished() const;
-
-    /**
-     * 判断任务是否暂停
-     * @return 任务是否暂停
-     */
     [[nodiscard]] bool isPaused() const;
-
-    /**
-     * 判断任务是否取消
-     * @return 任务是否取消
-     */
     [[nodiscard]] bool isCanceled() const;
-
-    /**
-     * 判断任务是否正在运行
-     * @return 任务是否正在运行
-     */
     [[nodiscard]] bool isRunning() const;
-
-    /**
-     * 获取任务进度
-     * @return 任务进度，范围[0, 1]
-     */
     [[nodiscard]] double getProgress();
 
     [[nodiscard]] double getSpeed() const;
     void                 updateSpeed();
 
-    // 获取任务上下文
     [[nodiscard]] std::shared_ptr<edm::TaskContext> getTaskContext() const;
-
-    // 获取总已下载字节数
-    [[nodiscard]] qint64 getDownloadedBytes() const;
-
-    // 获取切片信息
-    [[nodiscard]] inline std::vector<std::shared_ptr<DownloadRange>> getRanges() const { return ranges_; }
-
-    /**
-     * 获取最新的异常信息
-     */
+    [[nodiscard]] std::shared_ptr<DownloadState> getStateObject() const;
+    [[nodiscard]] int64_t getDownloadedBytes() const;
+    [[nodiscard]] std::vector<std::shared_ptr<DownloadRange>> getRanges() const { return state_->ranges; }
     [[nodiscard]] std::optional<std::string> getLastError();
-
-    /**
-     * 获取任务状态
-     */
     [[nodiscard]] TaskState getState() const;
 };
 

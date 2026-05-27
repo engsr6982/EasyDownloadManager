@@ -1,9 +1,14 @@
 #include "DownloadWorker.h"
 #include "CurlEx.h"
+#include "DownloadState.h"
 #include "TaskConfigure.h"
 
-#include <QDebug>
+#include <algorithm>
+#include <cstdio>
 #include <fmt/format.h>
+#ifdef _WIN32
+#include <share.h>
+#endif
 
 namespace edm ::downloader {
 
@@ -11,17 +16,11 @@ namespace edm ::downloader {
 DownloadWorker::DownloadWorker(
     std::shared_ptr<TaskConfigure>     config,
     std::string                        outFilePath,
-    std::shared_ptr<DownloadRange>     range,
-    std::shared_ptr<std::atomic<bool>> isTaskRunning,
-    std::function<void(bool)>          onFinished
+    std::shared_ptr<std::atomic<bool>> isTaskRunning
 )
 : config_(std::move(config)),
   outFilePath_(std::move(outFilePath)),
-  range_(std::move(range)),
-  isTaskRunning_(std::move(isTaskRunning)),
-  onFinished_(std::move(onFinished)) {
-    setAutoDelete(true); // 让 QThreadPool 自动清理
-}
+  isTaskRunning_(std::move(isTaskRunning)) {}
 DownloadWorker::~DownloadWorker() = default;
 
 struct WorkerContext {
@@ -35,7 +34,7 @@ size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void*
 
     // 如果上层调用了 pause() 或 cancel()，isRunning 变成 false
     if (!ctx->isTaskRunning->load(std::memory_order_relaxed)) {
-        return CURL_WRITEFUNC_PAUSE; // 中断 libcurl 传输
+        return 0; // 中断 libcurl 传输
     }
 
     size_t totalBytes = size * nmemb;
@@ -51,10 +50,7 @@ size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void*
     return totalBytes;
 }
 
-void DownloadWorker::run() {
-    qDebug() << fmt::format("Worker started for range: {}-{}", range_->start, range_->end).c_str();
-    bool success = false;
-
+Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& range) const {
     // 打开独立的文件句柄 (rb+ 允许随机读写，不截断文件)
     std::FILE* fp = nullptr;
 #ifdef _WIN32
@@ -64,13 +60,16 @@ void DownloadWorker::run() {
 #endif
 
     if (!fp) {
-        qDebug() << "Failed to open file for writing:" << outFilePath_.c_str();
-        if (onFinished_) onFinished_(false);
-        return;
+        return makeStringError("Failed to open temp file for range writing: " + outFilePath_);
     }
 
     // 定位到当前应该写入的偏移量
-    qint64 currentOffset = range_->start + range_->downloaded.load(std::memory_order_relaxed);
+    int64_t currentOffset = range->start + range->downloaded.load(std::memory_order_relaxed);
+    if (range->end >= range->start && currentOffset > range->end) {
+        std::fclose(fp);
+        range->completed.store(true, std::memory_order_relaxed);
+        return {};
+    }
 
 #ifdef _WIN32
     _fseeki64(fp, currentOffset, SEEK_SET); // Windows 支持 >2GB 文件的 fseek
@@ -83,37 +82,76 @@ void DownloadWorker::run() {
     auto curlExRes = config_->newCurl();
     if (!curlExRes) {
         std::fclose(fp);
-        return;
+        return forwardError(curlExRes.error());
     }
     CurlEx curl = std::move(curlExRes.value());
 
     // 告诉服务器我们要下载的精确范围
-    std::string rangeStr = fmt::format("{}-{}", currentOffset, range_->end);
+    std::string rangeStr = fmt::format("{}-{}", currentOffset, range->end);
     curl.setOpt(CURLOPT_RANGE, rangeStr.c_str());
 
     // 设置写入回调
-    WorkerContext ctx{fp, range_.get(), isTaskRunning_.get()};
+    WorkerContext ctx{fp, range.get(), isTaskRunning_.get()};
     curl.setOpt(CURLOPT_WRITEFUNCTION, writeCallback);
     curl.setOpt(CURLOPT_WRITEDATA, &ctx);
 
     // 开始下载
     auto performRes = curl.perform();
-    if (performRes) {
-        // 判断这块是否真的下完了
-        qint64 expected = range_->end - range_->start + 1;
-        if (range_->downloaded.load() == expected) {
-            success = true;
-        }
-    } else {
-        qDebug() << "Worker perform error:" << performRes.error().message().c_str();
+    std::fflush(fp);
+    std::fclose(fp);
+
+    if (!performRes) {
+        return forwardError(performRes.error());
     }
 
-    // 资源清理
-    std::fclose(fp);
-    qDebug() << fmt::format("Worker finished/stopped for range: {}-{}", range_->start, range_->end).c_str();
+    long responseCode = 0;
+    curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode);
+    if (responseCode != 206) {
+        return makeStringError(fmt::format("Server did not honor range request, HTTP {}", responseCode));
+    }
 
-    if (onFinished_) onFinished_(success); // 通知上层该线程退出了
+    int64_t expected = range->size();
+    if (range->downloaded.load(std::memory_order_relaxed) != expected) {
+        return makeStringError("Range download ended before expected byte count");
+    }
+
+    range->completed.store(true, std::memory_order_relaxed);
+    return {};
 }
 
+Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> const& range) const {
+    std::FILE* fp = nullptr;
+#ifdef _WIN32
+    fp = _fsopen(outFilePath_.c_str(), "wb", _SH_DENYNO);
+#else
+    fp = std::fopen(outFilePath_.c_str(), "wb");
+#endif
+
+    if (!fp) {
+        return makeStringError("Failed to open temp file for writing: " + outFilePath_);
+    }
+
+    auto curlExRes = config_->newCurl();
+    if (!curlExRes) {
+        std::fclose(fp);
+        return forwardError(curlExRes.error());
+    }
+    CurlEx curl = std::move(curlExRes.value());
+
+    WorkerContext ctx{fp, range.get(), isTaskRunning_.get()};
+    curl.setOpt(CURLOPT_WRITEFUNCTION, writeCallback);
+    curl.setOpt(CURLOPT_WRITEDATA, &ctx);
+
+    auto performRes = curl.perform();
+    std::fflush(fp);
+    std::fclose(fp);
+
+    if (!performRes) {
+        return forwardError(performRes.error());
+    }
+
+    range->completed.store(true, std::memory_order_relaxed);
+    return {};
+}
 
 } // namespace edm::downloader

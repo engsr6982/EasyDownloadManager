@@ -3,9 +3,13 @@
 #include "FetchedMetaInfo.h"
 #include "TaskConfigure.h"
 
-#include <qdebug.h>
-
 namespace edm ::downloader {
+
+namespace {
+size_t discardCallback(char*, size_t size, size_t nmemb, void*) {
+    return size * nmemb;
+}
+} // namespace
 
 
 MetaInfoFetcher::MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure) : configure_(std::move(configure)) {}
@@ -17,9 +21,9 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
 
     CurlEx curl = std::move(ex_res.value());
 
-    curl.setOpt(CURLOPT_NOBODY, 1L);
     curl.setOpt(CURLOPT_HEADER, 1L);
     curl.setOpt(CURLOPT_RANGE, "0-0");
+    curl.setOpt(CURLOPT_WRITEFUNCTION, discardCallback);
 
     if (auto res = curl.perform(); !res) {
         return forwardError(res.error());

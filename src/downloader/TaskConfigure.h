@@ -23,6 +23,7 @@ struct TaskConfigure {
     std::optional<std::string> cookie_;
     std::optional<std::string> mimeType_;
     std::optional<std::string> proxyUrl_;
+    int                        retryCount_{3};
 
     TaskConfigure() = default;
     explicit TaskConfigure(std::shared_ptr<edm::TaskModel> model) noexcept;

@@ -20,32 +20,18 @@
 
 namespace edm {
 
+namespace {
+static SignalHandler inst = SignalHandler{}; // 全局初始化，避免无调用方导致未初始化信号连接
+}
 
 SignalHandler::SignalHandler() {
     auto bus = EventBus::instance();
 
-    connect(bus, &EventBus::onShowNewTaskDialog, this, &SignalHandler::handleShowNewTaskDialog);
-
     connect(bus, &EventBus::onRequestCreateTask, this, &SignalHandler::handleRequestCreateTask);
-
-    connect(bus, &EventBus::onShowSettingDialog, this, &SignalHandler::handleShowSettingDialog);
-
-    connect(bus, &EventBus::onShowTaskInfoDialog, this, &SignalHandler::handleShowTaskInfoDialog);
-
-    connect(bus, &EventBus::onShowDownloadingDialog, this, &SignalHandler::handleShowDownloadingDialog);
 }
 
 SignalHandler::~SignalHandler() = default;
-SignalHandler* SignalHandler::instance() {
-    static SignalHandler inst;
-    return &inst;
-}
-
-void SignalHandler::handleShowNewTaskDialog(bool /*checked*/) const {
-    auto dialog = new NewTaskDialog(EdmApplication::getInstance().getMainWindow());
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->show();
-}
+SignalHandler* SignalHandler::instance() { return &inst; }
 
 void SignalHandler::handleRequestCreateTask(QString const& url, QString const& saveDir, bool useProxy) const {
     qDebug() << "SignalHandler::handleRequestCreateTask: "
@@ -58,44 +44,23 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
 
     auto model = TaskModel::make();
 
-    model->url            = url.toStdString();
-    model->bandLimit = conf.getBandwidthLimit();
-    model->threadCount    = conf.getThreadCount();
-    model->firstTry       = std::time(nullptr);
-    model->lastTry        = model->firstTry;
-    model->userAgent      = conf.getUserAgent().toStdString();
-    model->saveDir        = conf.getSaveDir().toStdString();
+    model->url         = url.toStdString();
+    model->bandLimit   = conf.getBandwidthLimit();
+    model->threadCount = conf.getThreadCount();
+    model->retryCount  = 3;
+    model->firstTry    = std::time(nullptr);
+    model->lastTry     = model->firstTry;
+    model->userAgent   = conf.getUserAgent().toStdString();
+    model->saveDir     = saveDir.toStdString();
 
     // 存入数据库
     EdmApplication::getInstance().getDatabase()->insertTask(model);
 
     auto ctx       = std::make_shared<TaskContext>();
-    ctx->model     = std::move(model);
+    ctx->model     = model;
     ctx->configure = TaskConfigure::fromUrl(url.toStdString(), saveDir.toStdString(), useProxy);
 
     emit EventBus::instance() -> onTaskCreated(ctx); // 任务已创建事件
 }
-
-void SignalHandler::handleShowSettingDialog(bool checked) const {
-    EdmApplication::getInstance().tryShowSettingDialog();
-}
-
-void SignalHandler::handleShowTaskInfoDialog(int id) const {
-    auto db   = EdmApplication::getInstance().getDatabase();
-    auto info = db->getTaskById(id);
-    if (!info) {
-        return;
-    }
-    auto dialog = new TaskInformationDialog{info, EdmApplication::getInstance().getMainWindow()};
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->show();
-}
-
-void SignalHandler::handleShowDownloadingDialog(int id) const {
-    auto dialog = new TaskDownloadingDialog(id, EdmApplication::getInstance().getMainWindow());
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->show();
-}
-
 
 } // namespace edm

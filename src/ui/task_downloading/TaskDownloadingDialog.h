@@ -1,14 +1,18 @@
 #pragma once
 
 #include <QDialog>
+#include <memory>
 
 namespace Ui {
 class TaskDownloadingDialog;
 }
 
 namespace edm {
-namespace components {
-class ThreadProgressBar;
+
+struct TaskModel;
+
+namespace downloader {
+class DownloadState;
 }
 
 class TaskDownloadingDialog : public QDialog {
@@ -23,9 +27,11 @@ private:
     void updateUI();
 
 private:
-    Ui::TaskDownloadingDialog* ui;
-    int                        taskId_;
-    QTimer*                    updateTimer_;
+    Ui::TaskDownloadingDialog*                 ui;
+    int                                        taskId_;
+    QTimer*                                    updateTimer_;
+    std::shared_ptr<TaskModel>                 model_;
+    std::shared_ptr<downloader::DownloadState> state_;
 };
 
 } // namespace edm

@@ -1,7 +1,6 @@
 #pragma once
 #include "expected.h"
 
-#include <qtclasshelpermacros.h>
 #include <string>
 
 namespace edm {
@@ -16,7 +15,10 @@ class MetaInfoFetcher final {
     std::shared_ptr<TaskConfigure> configure_;
 
 public:
-    Q_DISABLE_COPY_MOVE(MetaInfoFetcher);
+    MetaInfoFetcher(const MetaInfoFetcher&)            = delete;
+    MetaInfoFetcher& operator=(const MetaInfoFetcher&) = delete;
+    MetaInfoFetcher(MetaInfoFetcher&&)                 = delete;
+    MetaInfoFetcher& operator=(MetaInfoFetcher&&)      = delete;
     explicit MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure);
     ~MetaInfoFetcher() = default;
 
