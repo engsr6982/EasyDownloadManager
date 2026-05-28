@@ -33,14 +33,14 @@ enum class Resumable {
 
 using TaskId = int;
 
-inline constexpr TaskId kInvalidTaskID      = 0;
-inline constexpr auto             kInvalidFileSize    = -1;
-inline constexpr auto             kInvalidFileName    = "unknown.dat";
-inline constexpr Resumable        kInvalidResumable   = Resumable::Unknown;
-inline constexpr Category         kInvalidCategory    = Category::Other;
-inline constexpr BandLimit        kInvalidBandLimit   = BandLimit{0};
-inline constexpr TaskState        kInvalidTaskState   = TaskState::Pending;
-inline constexpr auto             kInvalidThreadCount = 0;
+inline constexpr TaskId    kInvalidTaskID      = 0;
+inline constexpr auto      kInvalidFileSize    = -1;
+inline constexpr auto      kInvalidFileName    = "unknown.dat";
+inline constexpr Resumable kInvalidResumable   = Resumable::Unknown;
+inline constexpr Category  kInvalidCategory    = Category::Other;
+inline constexpr BandLimit kInvalidBandLimit   = BandLimit{0};
+inline constexpr TaskState kInvalidTaskState   = TaskState::Pending;
+inline constexpr auto      kInvalidThreadCount = 0;
 
 inline constexpr auto kRetryCount = 3;
 

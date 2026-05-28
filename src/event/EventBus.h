@@ -3,12 +3,7 @@
 
 
 namespace edm {
-enum class TaskState;
-}
-namespace edm {
 struct TaskContext;
-
-struct MetaInfoResultEvent;
 
 class EventBus : public QObject {
     Q_OBJECT
@@ -39,8 +34,6 @@ signals:
      */
     void onTaskCreated(std::shared_ptr<edm::TaskContext> ctx);
 
-    // TODO: impl
-    void onTaskStateChanged(std::shared_ptr<edm::TaskContext> ctx, TaskState oldState, TaskState newState);
 };
 
 } // namespace edm

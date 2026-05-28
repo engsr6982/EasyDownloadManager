@@ -122,9 +122,12 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
 Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> const& range) const {
     std::FILE* fp = nullptr;
 #ifdef _WIN32
-    fp = _fsopen(outFilePath_.c_str(), "wb", _SH_DENYNO);
+    // NOTE: "rb+" is used instead of "wb" to preserve the pre-allocated file content.
+    // "wb" would truncate the file to zero length, destroying the allocated space.
+    // _fsopen with _SH_DENYNO additionally allows other processes to access the file concurrently.
+    fp = _fsopen(outFilePath_.c_str(), "rb+", _SH_DENYNO);
 #else
-    fp = std::fopen(outFilePath_.c_str(), "wb");
+    fp = std::fopen(outFilePath_.c_str(), "rb+");
 #endif
 
     if (!fp) {

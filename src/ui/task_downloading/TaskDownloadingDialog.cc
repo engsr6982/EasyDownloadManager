@@ -8,6 +8,7 @@
 #include "utils/Utils.h"
 
 #include <QTimer>
+#include <QMessageBox>
 #include <magic_enum/magic_enum.hpp>
 
 namespace edm {
@@ -19,7 +20,7 @@ TaskDownloadingDialog::TaskDownloadingDialog(int taskId, QWidget* parent)
     ui->setupUi(this);
     auto dispatcher = EdmApplication::getInstance().getDispatcher();
     state_          = dispatcher->getTaskState(taskId_);
-    // model_ = ? // TODO: fix this
+    model_          = dispatcher->getTaskModel(taskId_);
 
     setupUI();
 
@@ -44,17 +45,28 @@ void TaskDownloadingDialog::setupUI() {
         auto dispatcher = EdmApplication::getInstance().getDispatcher();
         if (state_) {
             if (state_->state() == TaskState::Running) {
-                dispatcher->pauseTask(taskId_);
-                ui->pauseOrResumeBtn_->setText("恢复");
+                auto paused = dispatcher->pauseTask(taskId_);
+                if (!paused) {
+                    QMessageBox::warning(this, "暂停失败", QString::fromStdString(paused.error().message()));
+                    return;
+                }
             } else if (state_->state() == TaskState::Paused) {
-                dispatcher->resumeTask(taskId_);
-                ui->pauseOrResumeBtn_->setText("暂停");
+                auto resumed = dispatcher->resumeTask(taskId_);
+                if (!resumed) {
+                    QMessageBox::warning(this, "恢复失败", QString::fromStdString(resumed.error().message()));
+                    return;
+                }
+                state_ = dispatcher->getTaskState(taskId_);
             }
         }
     });
 
     connect(ui->cancelBtn_, &QPushButton::clicked, this, [this]() {
-        EdmApplication::getInstance().getDispatcher()->cancelTask(taskId_);
+        auto canceled = EdmApplication::getInstance().getDispatcher()->cancelTask(taskId_);
+        if (!canceled) {
+            QMessageBox::warning(this, "取消失败", QString::fromStdString(canceled.error().message()));
+            return;
+        }
         this->close();
     });
 }

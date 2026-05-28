@@ -1,5 +1,6 @@
 #pragma once
 #include "DownloadState.h"
+#include "expected.h"
 
 #include <atomic>
 #include <functional>
@@ -37,7 +38,7 @@ private:
     double           currentSpeed_{0.0};
     std::vector<std::thread> workers_;
 
-    [[nodiscard]] bool prepareTask();
+    [[nodiscard]] Expected<> prepareTask();
     void               rebuildRanges();
     [[nodiscard]] bool loadProgress();
     void               saveProgress() const;
@@ -58,10 +59,10 @@ public:
     explicit DownloadTask(std::shared_ptr<edm::TaskContext> ctx, StateChangedCallback onStateChanged = {});
     ~DownloadTask();
 
-    [[nodiscard]] bool start();
-    [[nodiscard]] bool pause();
-    [[nodiscard]] bool resume();
-    [[nodiscard]] bool cancel();
+    [[nodiscard]] Expected<> start();
+    [[nodiscard]] Expected<> pause();
+    [[nodiscard]] Expected<> resume();
+    [[nodiscard]] Expected<> cancel();
 
     [[nodiscard]] bool isFinished() const;
     [[nodiscard]] bool isPaused() const;

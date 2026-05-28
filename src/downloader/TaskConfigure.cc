@@ -1,7 +1,6 @@
 #include "TaskConfigure.h"
 
 #include "CurlEx.h"
-#include "EdmConfig.h"
 #include "model/TaskModel.h"
 
 #include <regex>
@@ -22,11 +21,11 @@ std::optional<std::string> originFromUrl(std::string const& url) {
 
 TaskConfigure::TaskConfigure(std::shared_ptr<edm::TaskModel> model) noexcept {
     url_         = model->url;
-    saveDir_     = model->saveDir;
-    threadCount_ = model->threadCount;
-    bandLimit_   = model->bandLimit;
-    retryCount_  = model->retryCount;
-    userAgent_   = model->userAgent;
+    saveDir_     = model->saveDir.empty() ? "." : model->saveDir;
+    threadCount_ = model->threadCount > 0 ? model->threadCount : static_cast<int>(GlobalDefaults::kDefaultThreadCount);
+    bandLimit_   = model->bandLimit >= 0 ? model->bandLimit : GlobalDefaults::kDefaultBandwidthLimit;
+    retryCount_  = model->retryCount >= 0 ? model->retryCount : kRetryCount;
+    userAgent_   = model->userAgent.empty() ? GlobalDefaults::kDefaultUserAgent : model->userAgent;
     origin_      = originFromUrl(model->url);
     if (!model->pageUrl.empty()) referer_ = model->pageUrl;
     // cookie_ = ; // TODO: fix

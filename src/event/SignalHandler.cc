@@ -47,7 +47,7 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     model->url         = url.toStdString();
     model->bandLimit   = conf.getBandwidthLimit();
     model->threadCount = conf.getThreadCount();
-    model->retryCount  = 3;
+    model->retryCount  = kRetryCount;
     model->firstTry    = std::time(nullptr);
     model->lastTry     = model->firstTry;
     model->userAgent   = conf.getUserAgent().toStdString();

@@ -1,4 +1,5 @@
 #pragma once
+#include "expected.h"
 #include "model/TaskModel.h"
 
 #include <QObject>
@@ -35,9 +36,9 @@ public:
 
     void updateSpeed(TaskId id);
 
-    bool pauseTask(TaskId id);
-    bool resumeTask(TaskId id);
-    bool cancelTask(TaskId id);
+    Expected<> pauseTask(TaskId id);
+    Expected<> resumeTask(TaskId id);
+    Expected<> cancelTask(TaskId id);
 
 public slots:
     void handleTaskCreated(std::shared_ptr<edm::TaskContext> task);

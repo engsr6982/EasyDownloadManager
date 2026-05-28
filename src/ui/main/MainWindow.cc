@@ -180,8 +180,13 @@ void MainWindow::_buildToolBar() {
         qDebug() << "[MainWindow] onResumeTask";
         if (auto col = ui_->taskList_->item(ui_->taskList_->currentRow(), 0)) {
             TaskId id = col->data(Qt::UserRole).toInt();
-            if (!EdmApplication::getInstance().getDispatcher()->resumeTask(id)) {
-                QMessageBox::warning(this, "ERROR", "恢复任务失败!");
+            auto resumed = EdmApplication::getInstance().getDispatcher()->resumeTask(id);
+            if (!resumed) {
+                QMessageBox::warning(this, "恢复任务失败", QString::fromStdString(resumed.error().message()));
+                return;
+            }
+            if (auto state = EdmApplication::getInstance().getDispatcher()->getTaskState(id)) {
+                taskStates_[id] = state;
             }
         } else {
             QMessageBox::warning(this, "错误", "未找到要操作的任务，请先选中任务");

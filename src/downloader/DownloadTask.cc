@@ -8,22 +8,27 @@
 
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <vector>
 
 namespace edm::downloader {
 
 namespace {
 
-constexpr auto    kTempFileExt   = ".edm";
-constexpr auto    kMetaFileExt   = ".meta";
-constexpr int64_t kMinChunkSize  = 1024 * 1024;
-constexpr int64_t kMaxChunkSize  = 8 * 1024 * 1024;
-constexpr int64_t kChunkFanout   = 8;
+constexpr auto     kTempFileExt     = ".edm";
+constexpr auto     kMetaFileExt     = ".meta";
+constexpr int64_t  kMinChunkSize    = 1024 * 1024;
+constexpr int64_t  kMaxChunkSize    = 8 * 1024 * 1024;
+constexpr int64_t  kChunkFanout     = 8;
+constexpr uint32_t kProgressMagic   = 0x4D444545; // "EEDM" little-endian marker for EDM progress metadata.
+constexpr uint32_t kProgressVersion = 2;
+
 
 std::string sanitizeFileName(std::string value) {
     if (value.empty()) return kInvalidFileName;
@@ -69,6 +74,27 @@ std::filesystem::path uniqueFinalPath(std::filesystem::path path) {
     }
 }
 
+uint64_t fnv1a(uint64_t hash, void const* data, size_t len) {
+    auto bytes = static_cast<unsigned char const*>(data);
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+template <typename T>
+void appendBytes(std::vector<unsigned char>& out, T const& value) {
+    auto ptr = reinterpret_cast<unsigned char const*>(&value);
+    out.insert(out.end(), ptr, ptr + sizeof(T));
+}
+
+template <typename T>
+bool readValue(std::ifstream& in, T& value) {
+    in.read(reinterpret_cast<char*>(&value), sizeof(T));
+    return in.good();
+}
+
 } // namespace
 
 DownloadTask::DownloadTask(std::shared_ptr<edm::TaskContext> ctx, StateChangedCallback onStateChanged)
@@ -107,11 +133,11 @@ void DownloadTask::notifyStateChanged() const {
     }
 }
 
-bool DownloadTask::prepareTask() {
+Expected<> DownloadTask::prepareTask() {
     auto model = context_->model;
     auto conf  = context_->configure;
     if (!model || !conf) {
-        return false;
+        return makeStringError("Task model or configure is missing");
     }
 
     if (!context_->meta) {
@@ -120,7 +146,7 @@ bool DownloadTask::prepareTask() {
         if (!metaRes) {
             setError(metaRes.error().message());
             setState(TaskState::Failed);
-            return false;
+            return makeStringError(context_->model->errorMsg);
         }
         context_->meta = std::move(metaRes.value());
     }
@@ -131,15 +157,23 @@ bool DownloadTask::prepareTask() {
     if (meta.contentType) model->mimeType = *meta.contentType;
     if (model->fileName == kInvalidFileName || model->fileName.empty()) {
         if (meta.contentDisposition) {
-            model->fileName = fileNameFromContentDisposition(*meta.contentDisposition).value_or(fileNameFromUrl(meta.finalUrl));
+            model->fileName =
+                fileNameFromContentDisposition(*meta.contentDisposition).value_or(fileNameFromUrl(meta.finalUrl));
         } else {
             model->fileName = fileNameFromUrl(meta.finalUrl);
         }
     }
 
     state_->setTotalBytes(model->fileSize);
-    std::filesystem::create_directories(conf->saveDir_);
-    outFilePath_  = (std::filesystem::path(conf->saveDir_) / (sanitizeFileName(model->fileName) + kTempFileExt)).string();
+    std::error_code dirEc;
+    std::filesystem::create_directories(conf->saveDir_, dirEc);
+    if (dirEc) {
+        setError("Failed to create save directory: " + dirEc.message());
+        setState(TaskState::Failed);
+        return makeStringError(context_->model->errorMsg);
+    }
+    outFilePath_ =
+        (std::filesystem::path(conf->saveDir_) / (sanitizeFileName(model->fileName) + kTempFileExt)).string();
     metaFilePath_ = outFilePath_ + kMetaFileExt;
     state_->setOutputPath(outFilePath_);
 
@@ -147,7 +181,7 @@ bool DownloadTask::prepareTask() {
         model->resumable = Resumable::No;
         state_->ranges.clear();
         state_->ranges.push_back(std::make_shared<DownloadRange>(0, -1));
-        return true;
+        return {};
     }
 
     std::filesystem::path tmpPath(outFilePath_);
@@ -157,18 +191,18 @@ bool DownloadTask::prepareTask() {
     }
 
     std::error_code ec;
-    std::filesystem::resize_file(tmpPath, model->fileSize, ec);
+    std::filesystem::resize_file(tmpPath, model->fileSize, ec); // TODO
     if (ec) {
         setError("Failed to pre-allocate disk space: " + ec.message());
         setState(TaskState::Failed);
-        return false;
+        return makeStringError(context_->model->errorMsg);
     }
 
     if (model->resumable != Resumable::Yes || !loadProgress()) {
         rebuildRanges();
     }
 
-    return true;
+    return {};
 }
 
 void DownloadTask::rebuildRanges() {
@@ -192,24 +226,53 @@ void DownloadTask::rebuildRanges() {
 }
 
 bool DownloadTask::loadProgress() {
-    std::ifstream in(metaFilePath_);
+    std::ifstream in(metaFilePath_, std::ios::binary);
     if (!in) return false;
 
-    std::string tag;
-    int64_t     fileSize = 0;
-    in >> tag >> fileSize;
-    if (tag != "EDM_PROGRESS_V1" || fileSize != context_->model->fileSize) return false;
+    // Progress metadata is deliberately binary and versioned. It is not a security boundary,
+    // but the magic/version/checksum combination prevents accidental edits from being trusted.
+    uint32_t magic            = 0;
+    uint32_t version          = 0;
+    int64_t  fileSize         = 0;
+    uint64_t rangeCount       = 0;
+    uint64_t expectedChecksum = 0;
+    if (!readValue(in, magic) || !readValue(in, version) || !readValue(in, fileSize) || !readValue(in, rangeCount)
+        || !readValue(in, expectedChecksum)) {
+        return false;
+    }
+    if (magic != kProgressMagic || version != kProgressVersion || fileSize != context_->model->fileSize
+        || rangeCount == 0) {
+        return false;
+    }
 
     state_->ranges.clear();
-    int64_t start = 0;
-    int64_t end = 0;
-    int64_t downloaded = 0;
-    bool    completed = false;
-    while (in >> start >> end >> downloaded >> completed) {
+    std::vector<unsigned char> checksumBuffer;
+    checksumBuffer.reserve(static_cast<size_t>(rangeCount) * (sizeof(int64_t) * 3 + sizeof(uint8_t)));
+
+    for (uint64_t i = 0; i < rangeCount; ++i) {
+        int64_t start      = 0;
+        int64_t end        = 0;
+        int64_t downloaded = 0;
+        uint8_t completed  = 0;
+        if (!readValue(in, start) || !readValue(in, end) || !readValue(in, downloaded) || !readValue(in, completed)) {
+            state_->ranges.clear();
+            return false;
+        }
+        appendBytes(checksumBuffer, start);
+        appendBytes(checksumBuffer, end);
+        appendBytes(checksumBuffer, downloaded);
+        appendBytes(checksumBuffer, completed);
+
         auto range = std::make_shared<DownloadRange>(start, end);
         range->downloaded.store(std::clamp<int64_t>(downloaded, 0, range->size()), std::memory_order_relaxed);
-        range->completed.store(completed || range->downloaded.load() == range->size(), std::memory_order_relaxed);
+        range->completed.store(completed != 0 || range->downloaded.load() == range->size(), std::memory_order_relaxed);
         state_->ranges.push_back(range);
+    }
+
+    auto actualChecksum = fnv1a(1469598103934665603ULL, checksumBuffer.data(), checksumBuffer.size());
+    if (actualChecksum != expectedChecksum) {
+        state_->ranges.clear();
+        return false;
     }
     return !state_->ranges.empty();
 }
@@ -217,14 +280,34 @@ bool DownloadTask::loadProgress() {
 void DownloadTask::saveProgress() const {
     if (metaFilePath_.empty() || context_->model->fileSize < 0) return;
 
-    std::ofstream out(metaFilePath_, std::ios::trunc);
+    // Keep the record payload separate so the checksum covers exactly the mutable range data.
+    // Header fields remain readable enough for future migrations without accepting stale ranges.
+    std::vector<unsigned char> records;
+    records.reserve(state_->ranges.size() * (sizeof(int64_t) * 3 + sizeof(uint8_t)));
+    for (auto const& range : state_->ranges) {
+        auto downloaded = range->downloaded.load(std::memory_order_relaxed);
+        auto completed  = static_cast<uint8_t>(range->completed.load(std::memory_order_relaxed) ? 1 : 0);
+        appendBytes(records, range->start);
+        appendBytes(records, range->end);
+        appendBytes(records, downloaded);
+        appendBytes(records, completed);
+    }
+
+    std::ofstream out(metaFilePath_, std::ios::binary | std::ios::trunc);
     if (!out) return;
 
-    out << "EDM_PROGRESS_V1 " << context_->model->fileSize << '\n';
-    for (auto const& range : state_->ranges) {
-        out << range->start << ' ' << range->end << ' ' << range->downloaded.load(std::memory_order_relaxed) << ' '
-            << range->completed.load(std::memory_order_relaxed) << '\n';
-    }
+    auto magic      = kProgressMagic;
+    auto version    = kProgressVersion;
+    auto fileSize   = context_->model->fileSize;
+    auto rangeCount = static_cast<uint64_t>(state_->ranges.size());
+    auto checksum   = fnv1a(1469598103934665603ULL, records.data(), records.size());
+
+    out.write(reinterpret_cast<char const*>(&magic), sizeof(magic));
+    out.write(reinterpret_cast<char const*>(&version), sizeof(version));
+    out.write(reinterpret_cast<char const*>(&fileSize), sizeof(fileSize));
+    out.write(reinterpret_cast<char const*>(&rangeCount), sizeof(rangeCount));
+    out.write(reinterpret_cast<char const*>(&checksum), sizeof(checksum));
+    out.write(reinterpret_cast<char const*>(records.data()), static_cast<std::streamsize>(records.size()));
 }
 
 void DownloadTask::launchWorkers() {
@@ -287,19 +370,19 @@ void DownloadTask::joinWorkers() {
     workers_.clear();
 }
 
-bool DownloadTask::start() {
+Expected<> DownloadTask::start() {
     std::unique_lock lock{mutex_};
     auto             model = context_->model;
     if (model->state != TaskState::Pending && model->state != TaskState::Paused && model->state != TaskState::Failed) {
-        return false;
+        return makeStringError("Task is not startable from current state");
     }
 
-    if (!prepareTask()) return false;
+    if (auto prepared = prepareTask(); !prepared) return prepared;
 
     model->lastTry = std::time(nullptr);
     setState(TaskState::Running);
     launchWorkers();
-    return true;
+    return {};
 }
 
 void DownloadTask::finalizeTask() {
@@ -349,7 +432,9 @@ void DownloadTask::finalizeTask() {
         return;
     }
 
-    auto finalPath = uniqueFinalPath(std::filesystem::path(context_->configure->saveDir_) / sanitizeFileName(context_->model->fileName));
+    auto finalPath = uniqueFinalPath(
+        std::filesystem::path(context_->configure->saveDir_) / sanitizeFileName(context_->model->fileName)
+    );
     std::error_code ec;
     std::filesystem::rename(outFilePath_, finalPath, ec);
     if (ec) {
@@ -367,26 +452,28 @@ void DownloadTask::finalizeTask() {
     setState(TaskState::Finished);
 }
 
-bool DownloadTask::pause() {
+Expected<> DownloadTask::pause() {
     {
         std::unique_lock lock{mutex_};
-        if (context_->model->state != TaskState::Running) return false;
+        if (context_->model->state != TaskState::Running) {
+            return makeStringError("Only running tasks can be paused");
+        }
         setState(TaskState::Paused);
         isRunningFlag_->store(false, std::memory_order_release);
     }
     joinWorkers();
     saveProgress();
-    return true;
+    return {};
 }
 
-bool DownloadTask::resume() {
-    return start();
-}
+Expected<> DownloadTask::resume() { return start(); }
 
-bool DownloadTask::cancel() {
+Expected<> DownloadTask::cancel() {
     {
         std::unique_lock lock{mutex_};
-        if (context_->model->state != TaskState::Running && context_->model->state != TaskState::Paused) return false;
+        if (context_->model->state != TaskState::Running && context_->model->state != TaskState::Paused) {
+            return makeStringError("Only running or paused tasks can be canceled");
+        }
         cancelRequested_.store(true, std::memory_order_release);
         setState(TaskState::Canceled);
         isRunningFlag_->store(false, std::memory_order_release);
@@ -396,7 +483,7 @@ bool DownloadTask::cancel() {
     std::error_code ec;
     std::filesystem::remove(outFilePath_, ec);
     std::filesystem::remove(metaFilePath_, ec);
-    return true;
+    return {};
 }
 
 bool DownloadTask::isFinished() const {
@@ -433,15 +520,15 @@ void DownloadTask::updateSpeed() {
         state_->setSpeed(0.0);
         return;
     }
-    auto total     = getDownloadedBytes();
-    currentSpeed_  = static_cast<double>(total - lastDownloadedBytes_);
+    auto total           = getDownloadedBytes();
+    currentSpeed_        = static_cast<double>(total - lastDownloadedBytes_);
     lastDownloadedBytes_ = total;
     state_->setDownloadedBytes(total);
     state_->setSpeed(currentSpeed_);
 }
 
 std::shared_ptr<edm::TaskContext> DownloadTask::getTaskContext() const { return context_; }
-std::shared_ptr<DownloadState> DownloadTask::getStateObject() const { return state_; }
+std::shared_ptr<DownloadState>    DownloadTask::getStateObject() const { return state_; }
 
 int64_t DownloadTask::getDownloadedBytes() const {
     int64_t total = 0;
