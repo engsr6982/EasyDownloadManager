@@ -1,4 +1,5 @@
 #include "TaskConfigure.h"
+#include "EdmConfig.h"
 
 #include "CurlEx.h"
 #include "model/TaskModel.h"
