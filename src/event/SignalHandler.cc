@@ -1,22 +1,17 @@
 #include "SignalHandler.h"
 
+#include "Dispatcher.h"
 #include "EdmApplication.h"
 #include "EdmConfig.h"
 #include "EventBus.h"
-#include "database/DownloadDatabase.h"
 #include "downloader/TaskConfigure.h"
 #include "dto/TaskContext.h"
-#include "ui/main/MainWindow.h"
-#include "ui/new_task/NewTaskDialog.h"
-#include "ui/task_information/TaskInformationDialog.h"
 
 #include "fmt/format.h"
 #include "model/TaskModel.h"
-#include "ui/task_downloading/TaskDownloadingDialog.h"
-#include "utils/Utils.h"
 
-#include <QApplication>
 #include <qmessagebox.h>
+#include <utility>
 
 namespace edm {
 
@@ -37,9 +32,6 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     qDebug() << "SignalHandler::handleRequestCreateTask: "
              << fmt::format("url: {}, saveDir: {}, useProxy: {}", url.toStdString(), saveDir.toStdString(), useProxy);
 
-    // 为了用户 UI 体验，采取异步处理任务
-    // 所以这里先入库，后台拉取任务信息后再更新
-
     auto& conf = EdmConfig::getInstance();
 
     auto model = TaskModel::make();
@@ -53,14 +45,29 @@ void SignalHandler::handleRequestCreateTask(QString const& url, QString const& s
     model->userAgent   = conf.getUserAgent().toStdString();
     model->saveDir     = saveDir.toStdString();
 
-    // 存入数据库
-    EdmApplication::getInstance().getDatabase()->insertTask(model);
+    TaskConfigureDefaults defaults;
+    defaults.threadCount = model->threadCount;
+    defaults.bandLimit   = model->bandLimit;
+    defaults.retryCount  = model->retryCount;
+    defaults.userAgent   = model->userAgent;
+    if (auto proxy = conf.getProxyConfig(); useProxy && !proxy.isNone()) {
+        defaults.proxyUrl = proxy.toProxyUrl();
+    }
 
-    auto ctx       = std::make_shared<TaskContext>();
-    ctx->model     = model;
-    ctx->configure = TaskConfigure::fromUrl(url.toStdString(), saveDir.toStdString(), useProxy);
+    auto configure = TaskConfigure::fromUrl(url.toStdString(), saveDir.toStdString(), std::move(defaults));
+    auto created   = EdmApplication::getInstance().getDispatcher()->createTask(model, configure);
+    if (!created) {
+        if (model->id > kInvalidTaskID) {
+            auto failedCtx       = std::make_shared<TaskContext>();
+            failedCtx->model     = model;
+            failedCtx->configure = configure;
+            emit EventBus::instance() -> onTaskCreated(failedCtx);
+        }
+        QMessageBox::warning(nullptr, "创建任务失败", QString::fromStdString(created.error().message()));
+        return;
+    }
 
-    emit EventBus::instance() -> onTaskCreated(ctx); // 任务已创建事件
+    emit EventBus::instance() -> onTaskCreated(created.value()); // 任务已创建事件
 }
 
 } // namespace edm

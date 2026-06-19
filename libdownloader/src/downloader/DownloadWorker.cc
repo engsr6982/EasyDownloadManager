@@ -105,7 +105,9 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     }
 
     long responseCode = 0;
-    curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode);
+    if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
+        return forwardError(responseCodeRes.error());
+    }
     if (responseCode != 206) {
         return makeStringError(fmt::format("Server did not honor range request, HTTP {}", responseCode));
     }

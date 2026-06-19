@@ -15,9 +15,11 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(magic_enum CONFIG REQUIRED)
 find_package(SQLiteCpp REQUIRED)
-find_package(CURL REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+find_package(CURL REQUIRED)
 find_package(expected-lite CONFIG REQUIRED)
+
+add_subdirectory(libdownloader)
 
 # --- 源文件列表 ---
 set(PROJECT_SOURCES
@@ -25,22 +27,9 @@ set(PROJECT_SOURCES
         src/EdmConfig.h
         src/database/DownloadDatabase.cc
         src/database/DownloadDatabase.h
-        src/downloader/DownloadTask.cc
-        src/downloader/DownloadTask.h
-        src/downloader/DownloadWorker.cc
-        src/downloader/DownloadWorker.h
-        src/downloader/DownloadState.h
-        src/downloader/FileVerifier.cc
-        src/downloader/FileVerifier.h
-        src/downloader/TaskConfigure.h
-        src/downloader/TaskConfigure.cc
-        src/downloader/MetaInfoFetcher.cc
-        src/downloader/MetaInfoFetcher.h
         src/event/EventBus.h
         src/event/SignalHandler.cc
         src/event/SignalHandler.h
-        src/Global.h
-        src/model/TaskModel.h
         src/resources/Resources.qrc
         src/ui/main/MainWindow.cc
         src/ui/main/MainWindow.h
@@ -63,17 +52,10 @@ set(PROJECT_SOURCES
         src/utils/EnumUtils.h
         src/utils/IconUtils.h
         src/utils/Utils.h
-        src/Dispatcher.cc
-        src/Dispatcher.h
         src/EdmApplication.cc
         src/EdmApplication.h
         src/main.cpp
-        src/expected.h
-        src/downloader/CurlEx.h
-        src/downloader/CurlEx.cc
-        src/downloader/FetchedMetaInfo.h
         src/utils/TimeUtils.h
-        src/dto/TaskContext.h
 )
 
 # --- 创建目标 ---
@@ -88,10 +70,8 @@ target_include_directories(EasyDownloadManager PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 
 # --- 编译定义 ---
 target_compile_definitions(EasyDownloadManager PRIVATE
-        NOMINMAX
         UNICODE
         _UNICODE
-        CURL_STATICLIB
         $<$<CONFIG:Debug>:EDM_DEBUG>
 )
 
@@ -107,16 +87,12 @@ endif()
 
 # --- 链接库 ---
 target_link_libraries(EasyDownloadManager PRIVATE
+        libdownloader
         Qt${QT_VERSION_MAJOR}::Widgets
         magic_enum::magic_enum
         SQLiteCpp
-        CURL::libcurl
         fmt::fmt
 )
-
-if (WIN32)
-    target_link_libraries(EasyDownloadManager PRIVATE bcrypt)
-endif()
 
 # --- 平台特定设置 ---
 set_target_properties(EasyDownloadManager PROPERTIES

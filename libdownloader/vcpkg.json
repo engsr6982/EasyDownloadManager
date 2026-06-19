@@ -1,10 +1,8 @@
 {
-  "name": "easy-download-manager",
+  "name": "libdownloader",
   "version-string": "0.1.0",
   "builtin-baseline": "b5d1a94fb7f88fd835e360fd23a45a09ceedbf48",
   "dependencies": [
-    "magic-enum",
-    "sqlitecpp",
     "fmt",
     "expected-lite",
     {
@@ -17,14 +15,6 @@
     }
   ],
   "overrides": [
-    {
-      "name": "magic-enum",
-      "version-string": "0.9.7"
-    },
-    {
-      "name": "sqlitecpp",
-      "version-string": "3.3.3"
-    },
     {
       "name": "fmt",
       "version-string": "12.1.0"

@@ -1,24 +1,19 @@
 #include "Dispatcher.h"
 
-#include "EdmApplication.h"
-#include "database/DownloadDatabase.h"
 #include "downloader/DownloadTask.h"
 #include "downloader/TaskConfigure.h"
 #include "dto/TaskContext.h"
-#include "event/EventBus.h"
 
 
-#include <QDebug>
-#include <QRunnable>
-#include <qobject.h>
+#include <utility>
 
 namespace edm {
 
 
-Dispatcher::Dispatcher() {
-    // 监听新增任务的调度请求
-    connect(EventBus::instance(), &EventBus::onTaskCreated, this, &Dispatcher::handleTaskCreated);
-}
+Dispatcher::Dispatcher(Options options)
+: taskLoader_(std::move(options.taskLoader)),
+  onTaskChanged_(std::move(options.onTaskChanged)),
+  configureFactory_(std::move(options.configureFactory)) {}
 
 Dispatcher::~Dispatcher() = default;
 
@@ -29,11 +24,23 @@ std::shared_ptr<TaskContext> makeContextFromModel(std::shared_ptr<TaskModel> mod
 
     auto ctx       = std::make_shared<TaskContext>();
     ctx->model     = std::move(model);
-    ctx->configure = std::make_shared<TaskConfigure>(ctx->model);
     return ctx;
 }
 
 } // namespace
+
+std::shared_ptr<TaskConfigure> Dispatcher::makeConfigure(std::shared_ptr<TaskModel> const& model) const {
+    if (configureFactory_) {
+        return configureFactory_(model);
+    }
+    return std::make_shared<TaskConfigure>(model);
+}
+
+void Dispatcher::persistTask(std::shared_ptr<TaskContext> const& ctx) const {
+    if (onTaskChanged_) {
+        onTaskChanged_(ctx);
+    }
+}
 
 
 std::shared_ptr<downloader::DownloadState> Dispatcher::getTaskState(TaskId id) {
@@ -51,7 +58,7 @@ std::shared_ptr<TaskModel> Dispatcher::getTaskModel(TaskId id) {
             return it->second->getTaskContext()->model;
         }
     }
-    return EdmApplication::getInstance().getDatabase()->getTaskById(id);
+    return taskLoader_ ? taskLoader_(id) : nullptr;
 }
 
 void Dispatcher::updateAllSpeeds() {
@@ -95,18 +102,17 @@ Expected<> Dispatcher::resumeTask(TaskId id) {
         return task->resume();
     }
 
-    auto model = EdmApplication::getInstance().getDatabase()->getTaskById(id);
+    auto model = taskLoader_ ? taskLoader_(id) : nullptr;
     if (!model) return makeStringError("Task does not exist");
     if (model->state != TaskState::Paused && model->state != TaskState::Failed && model->state != TaskState::Pending) {
         return makeStringError("Task is not resumable from current state");
     }
 
     auto ctx = makeContextFromModel(model);
+    ctx->configure = makeConfigure(ctx->model);
     auto resumedTask =
-        std::make_shared<downloader::DownloadTask>(ctx, [](std::shared_ptr<edm::TaskContext> const& changedCtx) {
-            if (changedCtx && changedCtx->model) {
-                EdmApplication::getInstance().getDatabase()->insertTask(changedCtx->model);
-            }
+        std::make_shared<downloader::DownloadTask>(ctx, [this](std::shared_ptr<edm::TaskContext> const& changedCtx) {
+            persistTask(changedCtx);
         });
 
     {
@@ -132,33 +138,79 @@ Expected<> Dispatcher::cancelTask(TaskId id) {
     return makeStringError("Task is not active");
 }
 
-void Dispatcher::handleTaskCreated(std::shared_ptr<edm::TaskContext> task) {
-    qDebug() << "Dispatcher received task ID:" << task->model->id;
+Expected<> Dispatcher::scheduleTask(std::shared_ptr<edm::TaskContext> task) {
+    if (!task || !task->model) {
+        return makeStringError("Task context is missing");
+    }
 
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    if (activeTasks_.find(task->model->id) != activeTasks_.end()) {
-        return; // 已经在跑了
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        if (activeTasks_.find(task->model->id) != activeTasks_.end()) {
+            return {}; // 已经在跑了
+        }
     }
 
     // 从 Model 转换为 Configure
     if (!task->configure) {
-        task->configure = std::make_shared<TaskConfigure>(task->model);
+        task->configure = makeConfigure(task->model);
     }
 
     auto downloadTask =
-        std::make_shared<downloader::DownloadTask>(task, [](std::shared_ptr<edm::TaskContext> const& ctx) {
-            if (ctx && ctx->model) {
-                EdmApplication::getInstance().getDatabase()->insertTask(ctx->model);
-            }
+        std::make_shared<downloader::DownloadTask>(task, [this](std::shared_ptr<edm::TaskContext> const& ctx) {
+            persistTask(ctx);
         });
 
-    activeTasks_[task->model->id] = downloadTask;
-    if (auto started = downloadTask->start(); started) {
-        qDebug() << "Task ID" << task->model->id << "started successfully.";
-    } else {
-        activeTasks_.erase(task->model->id);
-        qDebug() << "Failed to start Task ID" << task->model->id << started.error().message().c_str();
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        if (activeTasks_.find(task->model->id) != activeTasks_.end()) {
+            return {};
+        }
+        activeTasks_[task->model->id] = downloadTask;
     }
+
+    if (auto started = downloadTask->start(); !started) {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto it = activeTasks_.find(task->model->id);
+        if (it != activeTasks_.end() && it->second == downloadTask) {
+            activeTasks_.erase(it);
+        }
+        return forwardError(started.error());
+    }
+    return {};
+}
+
+Expected<std::shared_ptr<TaskContext>>
+Dispatcher::createTask(std::shared_ptr<TaskModel> model, std::shared_ptr<TaskConfigure> configure) {
+    if (!model) {
+        return makeStringError("Task model is missing");
+    }
+    if (model->url.empty()) {
+        return makeStringError("Task URL is empty");
+    }
+    if (model->state == kInvalidTaskState) {
+        model->state = TaskState::Pending;
+    }
+    if (model->retryCount < 0) {
+        model->retryCount = kRetryCount;
+    }
+
+    auto ctx       = std::make_shared<TaskContext>();
+    ctx->model     = std::move(model);
+    ctx->configure = std::move(configure);
+    if (!ctx->configure) {
+        ctx->configure = makeConfigure(ctx->model);
+    }
+
+    persistTask(ctx);
+    if (ctx->model->id <= kInvalidTaskID) {
+        ctx->model->id = nextTransientId_.fetch_add(1, std::memory_order_relaxed);
+        persistTask(ctx);
+    }
+
+    if (auto scheduled = scheduleTask(ctx); !scheduled) {
+        return forwardError(scheduled.error());
+    }
+    return ctx;
 }
 
 

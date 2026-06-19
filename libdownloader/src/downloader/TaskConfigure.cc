@@ -1,10 +1,10 @@
 #include "TaskConfigure.h"
-#include "EdmConfig.h"
 
 #include "CurlEx.h"
 #include "model/TaskModel.h"
 
 #include <regex>
+#include <utility>
 
 namespace edm {
 
@@ -31,7 +31,6 @@ TaskConfigure::TaskConfigure(std::shared_ptr<edm::TaskModel> model) noexcept {
     if (!model->pageUrl.empty()) referer_ = model->pageUrl;
     // cookie_ = ; // TODO: fix
     mimeType_ = model->mimeType;
-    proxyUrl_ = EdmConfig::getInstance().getProxyConfig().toProxyUrl();
 }
 
 Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
@@ -72,19 +71,17 @@ Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
 }
 
 std::shared_ptr<TaskConfigure>
-TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, bool useProxy) {
+TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, TaskConfigureDefaults defaults) {
     auto configure          = std::make_shared<TaskConfigure>();
     configure->url_         = url;
     configure->saveDir_     = saveDir;
-
-    auto& conf = EdmConfig::getInstance();
-
-    configure->threadCount_    = conf.getThreadCount();
-    configure->userAgent_      = conf.getUserAgent().toStdString();
-    configure->bandLimit_ = conf.getBandwidthLimit();
-    if (auto proxy = conf.getProxyConfig(); useProxy && !proxy.isNone()) {
-        configure->proxyUrl_ = proxy.toProxyUrl();
-    }
+    configure->threadCount_ = defaults.threadCount > 0 ? defaults.threadCount
+                                                       : static_cast<int>(GlobalDefaults::kDefaultThreadCount);
+    configure->bandLimit_   = defaults.bandLimit >= 0 ? defaults.bandLimit : GlobalDefaults::kDefaultBandwidthLimit;
+    configure->retryCount_  = defaults.retryCount >= 0 ? defaults.retryCount : kRetryCount;
+    configure->userAgent_   = std::move(defaults.userAgent);
+    configure->origin_      = originFromUrl(url);
+    configure->proxyUrl_    = std::move(defaults.proxyUrl);
 
     return configure;
 }

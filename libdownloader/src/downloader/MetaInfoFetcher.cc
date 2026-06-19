@@ -41,7 +41,9 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
 
     // 是否支持 Range 及真实大小
     long responseCode = 0;
-    curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode);
+    if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
+        return forwardError(responseCodeRes.error());
+    }
 
     if (responseCode == 206) {
         // 206 Partial Content: 支持断点续传

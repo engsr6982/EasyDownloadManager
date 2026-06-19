@@ -2,6 +2,7 @@
 #include "Global.h"
 #include "expected.h"
 
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -11,6 +12,14 @@ namespace downloader {
 class CurlEx;
 }
 struct TaskModel;
+
+struct TaskConfigureDefaults {
+    int                        threadCount{static_cast<int>(GlobalDefaults::kDefaultThreadCount)};
+    BandLimit                  bandLimit{GlobalDefaults::kDefaultBandwidthLimit};
+    std::optional<std::string> userAgent{GlobalDefaults::kDefaultUserAgent};
+    std::optional<std::string> proxyUrl;
+    int                        retryCount{kRetryCount};
+};
 
 struct TaskConfigure {
     std::string                url_;
@@ -31,7 +40,7 @@ struct TaskConfigure {
     [[nodiscard]] Expected<downloader::CurlEx> newCurl() const;
 
     [[nodiscard]] static std::shared_ptr<TaskConfigure>
-    fromUrl(std::string const& url, std::string const& saveDir, bool useProxy);
+    fromUrl(std::string const& url, std::string const& saveDir, TaskConfigureDefaults defaults = {});
 };
 
 } // namespace edm

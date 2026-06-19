@@ -3,9 +3,13 @@
         // "-B",
         // "./cmake-build-debug",
         "-DCMAKE_TOOLCHAIN_FILE=D:/Program/VS2022/VC/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_PREFIX_PATH=D:/Program/Qt/6.8.3/msvc2022_64"
+        "-DCMAKE_PREFIX_PATH=D:/Program/Qt/6.8.3/msvc2022_64",
+        "-DLIBDOWNLOADER_BUILD_TESTS=Y"
     ],
     "clangd.arguments": [
         "--compile-commands-dir=build"
+    ],
+    "compareFolders.excludeFilter": [
+        "/libdownloader\\src"
     ]
 }

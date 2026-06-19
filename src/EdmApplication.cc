@@ -1,8 +1,11 @@
 #include "EdmApplication.h"
 
 #include "Dispatcher.h"
+#include "EdmConfig.h"
 #include "QSystemTrayIcon"
 #include "database/DownloadDatabase.h"
+#include "downloader/TaskConfigure.h"
+#include "dto/TaskContext.h"
 #include "ui/main/MainWindow.h"
 #include "ui/settings/SettingsDialog.h"
 #include "utils/IconUtils.h"
@@ -21,9 +24,27 @@ struct EdmApplication::Impl {
     std::unique_ptr<QSystemTrayIcon>  trayIcon_{nullptr};
 
     void init() {
-        database_       = std::make_unique<DownloadDatabase>();
-        dispatcher_     = std::make_unique<Dispatcher>();
-        mainWindow_     = std::make_unique<MainWindow>();
+        database_ = std::make_unique<DownloadDatabase>();
+
+        Dispatcher::Options dispatcherOptions;
+        dispatcherOptions.taskLoader = [this](TaskId id) {
+            return database_ ? database_->getTaskById(id) : nullptr;
+        };
+        dispatcherOptions.onTaskChanged = [this](std::shared_ptr<TaskContext> const& ctx) {
+            if (database_ && ctx && ctx->model) {
+                database_->insertTask(ctx->model);
+            }
+        };
+        dispatcherOptions.configureFactory = [](std::shared_ptr<TaskModel> const& model) {
+            auto configure = std::make_shared<TaskConfigure>(model);
+            if (auto proxy = EdmConfig::getInstance().getProxyConfig(); !proxy.isNone()) {
+                configure->proxyUrl_ = proxy.toProxyUrl();
+            }
+            return configure;
+        };
+
+        dispatcher_ = std::make_unique<Dispatcher>(std::move(dispatcherOptions));
+        mainWindow_ = std::make_unique<MainWindow>();
 
         _initSystemTrayIcon();
     }
