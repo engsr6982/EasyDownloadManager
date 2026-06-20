@@ -2,6 +2,7 @@
 #include "CurlEx.h"
 #include "DownloadState.h"
 #include "TaskConfigure.h"
+#include "utils/TaskLogger.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -16,11 +17,13 @@ namespace edm ::downloader {
 DownloadWorker::DownloadWorker(
     std::shared_ptr<TaskConfigure>     config,
     std::string                        outFilePath,
-    std::shared_ptr<std::atomic<bool>> isTaskRunning
+    std::shared_ptr<std::atomic<bool>> isTaskRunning,
+    TaskId                             taskId
 )
 : config_(std::move(config)),
   outFilePath_(std::move(outFilePath)),
-  isTaskRunning_(std::move(isTaskRunning)) {}
+  isTaskRunning_(std::move(isTaskRunning)),
+  taskId_(taskId) {}
 DownloadWorker::~DownloadWorker() = default;
 
 struct WorkerContext {
@@ -51,6 +54,10 @@ size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void*
 }
 
 Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& range) const {
+    EDM_LOG_DEBUG(taskId_, "downloadRange: opening file, offset={}, range=[{}, {})",
+                  range->start + range->downloaded.load(std::memory_order_relaxed),
+                  range->start, range->end + 1);
+
     // 打开独立的文件句柄 (rb+ 允许随机读写，不截断文件)
     std::FILE* fp = nullptr;
 #ifdef _WIN32
@@ -60,6 +67,7 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
 #endif
 
     if (!fp) {
+        EDM_LOG_ERROR(taskId_, "Failed to open temp file for range writing: {}", outFilePath_);
         return makeStringError("Failed to open temp file for range writing: " + outFilePath_);
     }
 
@@ -68,6 +76,7 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     if (range->end >= range->start && currentOffset > range->end) {
         std::fclose(fp);
         range->completed.store(true, std::memory_order_relaxed);
+        EDM_LOG_DEBUG(taskId_, "downloadRange: already completed (offset {} > end {})", currentOffset, range->end);
         return {};
     }
 
@@ -82,6 +91,7 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     auto curlExRes = config_->newCurl();
     if (!curlExRes) {
         std::fclose(fp);
+        EDM_LOG_ERROR(taskId_, "downloadRange: failed to create CURL handle: {}", curlExRes.error().message());
         return forwardError(curlExRes.error());
     }
     CurlEx curl = std::move(curlExRes.value());
@@ -89,6 +99,7 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     // 告诉服务器我们要下载的精确范围
     std::string rangeStr = fmt::format("{}-{}", currentOffset, range->end);
     curl.setOpt(CURLOPT_RANGE, rangeStr.c_str());
+    EDM_LOG_TRACE(taskId_, "downloadRange: requesting bytes {}", rangeStr);
 
     // 设置写入回调
     WorkerContext ctx{fp, range.get(), isTaskRunning_.get()};
@@ -101,27 +112,35 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     std::fclose(fp);
 
     if (!performRes) {
+        EDM_LOG_ERROR(taskId_, "downloadRange: CURL perform failed: {}", performRes.error().message());
         return forwardError(performRes.error());
     }
 
     long responseCode = 0;
     if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
+        EDM_LOG_ERROR(taskId_, "downloadRange: failed to get response code: {}", responseCodeRes.error().message());
         return forwardError(responseCodeRes.error());
     }
     if (responseCode != 206) {
+        EDM_LOG_ERROR(taskId_, "downloadRange: server returned HTTP {} instead of 206", responseCode);
         return makeStringError(fmt::format("Server did not honor range request, HTTP {}", responseCode));
     }
 
     int64_t expected = range->size();
     if (range->downloaded.load(std::memory_order_relaxed) != expected) {
+        EDM_LOG_ERROR(taskId_, "downloadRange: incomplete range, downloaded {} / {} bytes",
+                      range->downloaded.load(std::memory_order_relaxed), expected);
         return makeStringError("Range download ended before expected byte count");
     }
 
+    EDM_LOG_DEBUG(taskId_, "downloadRange: completed [{}, {})", range->start, range->end + 1);
     range->completed.store(true, std::memory_order_relaxed);
     return {};
 }
 
 Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> const& range) const {
+    EDM_LOG_DEBUG(taskId_, "downloadWholeFile: starting whole file download");
+
     std::FILE* fp = nullptr;
 #ifdef _WIN32
     // NOTE: "rb+" is used instead of "wb" to preserve the pre-allocated file content.
@@ -133,12 +152,14 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
 #endif
 
     if (!fp) {
+        EDM_LOG_ERROR(taskId_, "Failed to open temp file for writing: {}", outFilePath_);
         return makeStringError("Failed to open temp file for writing: " + outFilePath_);
     }
 
     auto curlExRes = config_->newCurl();
     if (!curlExRes) {
         std::fclose(fp);
+        EDM_LOG_ERROR(taskId_, "downloadWholeFile: failed to create CURL handle: {}", curlExRes.error().message());
         return forwardError(curlExRes.error());
     }
     CurlEx curl = std::move(curlExRes.value());
@@ -152,9 +173,12 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
     std::fclose(fp);
 
     if (!performRes) {
+        EDM_LOG_ERROR(taskId_, "downloadWholeFile: CURL perform failed: {}", performRes.error().message());
         return forwardError(performRes.error());
     }
 
+    EDM_LOG_INFO(taskId_, "downloadWholeFile: completed, {} bytes downloaded",
+                 range->downloaded.load(std::memory_order_relaxed));
     range->completed.store(true, std::memory_order_relaxed);
     return {};
 }

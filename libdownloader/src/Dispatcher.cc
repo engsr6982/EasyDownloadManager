@@ -3,7 +3,7 @@
 #include "downloader/DownloadTask.h"
 #include "downloader/TaskConfigure.h"
 #include "dto/TaskContext.h"
-
+#include "utils/TaskLogger.h"
 
 #include <utility>
 
@@ -13,7 +13,9 @@ namespace edm {
 Dispatcher::Dispatcher(Options options)
 : taskLoader_(std::move(options.taskLoader)),
   onTaskChanged_(std::move(options.onTaskChanged)),
-  configureFactory_(std::move(options.configureFactory)) {}
+  configureFactory_(std::move(options.configureFactory)) {
+    EDM_LOG_INFO(kInvalidTaskID, "Dispatcher initialized");
+}
 
 Dispatcher::~Dispatcher() = default;
 
@@ -78,16 +80,19 @@ void Dispatcher::updateSpeed(TaskId id) {
 }
 
 Expected<> Dispatcher::pauseTask(TaskId id) {
+    EDM_LOG_INFO(id, "Dispatcher: pauseTask requested");
     std::lock_guard<std::mutex> lock(tasksMutex_);
 
     auto iter = activeTasks_.find(id);
     if (iter != activeTasks_.end()) {
         return iter->second->pause();
     }
+    EDM_LOG_WARN(id, "Dispatcher: pauseTask failed, task is not active");
     return makeStringError("Task is not active");
 }
 
 Expected<> Dispatcher::resumeTask(TaskId id) {
+    EDM_LOG_INFO(id, "Dispatcher: resumeTask requested");
     std::shared_ptr<downloader::DownloadTask> task;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
@@ -103,8 +108,12 @@ Expected<> Dispatcher::resumeTask(TaskId id) {
     }
 
     auto model = taskLoader_ ? taskLoader_(id) : nullptr;
-    if (!model) return makeStringError("Task does not exist");
+    if (!model) {
+        EDM_LOG_ERROR(id, "Dispatcher: resumeTask failed, task does not exist");
+        return makeStringError("Task does not exist");
+    }
     if (model->state != TaskState::Paused && model->state != TaskState::Failed && model->state != TaskState::Pending) {
+        EDM_LOG_WARN(id, "Dispatcher: resumeTask failed, task is not resumable from state {}", static_cast<int>(model->state));
         return makeStringError("Task is not resumable from current state");
     }
 
@@ -122,6 +131,7 @@ Expected<> Dispatcher::resumeTask(TaskId id) {
 
     auto started = resumedTask->resume();
     if (!started) {
+        EDM_LOG_ERROR(id, "Dispatcher: resumeTask start failed: {}", started.error().message());
         std::lock_guard<std::mutex> lock(tasksMutex_);
         activeTasks_.erase(id);
     }
@@ -129,12 +139,14 @@ Expected<> Dispatcher::resumeTask(TaskId id) {
 }
 
 Expected<> Dispatcher::cancelTask(TaskId id) {
+    EDM_LOG_INFO(id, "Dispatcher: cancelTask requested");
     std::lock_guard<std::mutex> lock(tasksMutex_);
 
     auto iter = activeTasks_.find(id);
     if (iter != activeTasks_.end()) {
         return iter->second->cancel();
     }
+    EDM_LOG_WARN(id, "Dispatcher: cancelTask failed, task is not active");
     return makeStringError("Task is not active");
 }
 
@@ -143,9 +155,13 @@ Expected<> Dispatcher::scheduleTask(std::shared_ptr<edm::TaskContext> task) {
         return makeStringError("Task context is missing");
     }
 
+    auto taskId = task->model->id;
+    EDM_LOG_DEBUG(taskId, "Dispatcher: scheduling task");
+
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
-        if (activeTasks_.find(task->model->id) != activeTasks_.end()) {
+        if (activeTasks_.find(taskId) != activeTasks_.end()) {
+            EDM_LOG_DEBUG(taskId, "Dispatcher: task already active, skipping");
             return {}; // 已经在跑了
         }
     }
@@ -162,20 +178,22 @@ Expected<> Dispatcher::scheduleTask(std::shared_ptr<edm::TaskContext> task) {
 
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
-        if (activeTasks_.find(task->model->id) != activeTasks_.end()) {
+        if (activeTasks_.find(taskId) != activeTasks_.end()) {
             return {};
         }
-        activeTasks_[task->model->id] = downloadTask;
+        activeTasks_[taskId] = downloadTask;
     }
 
     if (auto started = downloadTask->start(); !started) {
+        EDM_LOG_ERROR(taskId, "Dispatcher: failed to start task: {}", started.error().message());
         std::lock_guard<std::mutex> lock(tasksMutex_);
-        auto it = activeTasks_.find(task->model->id);
+        auto it = activeTasks_.find(taskId);
         if (it != activeTasks_.end() && it->second == downloadTask) {
             activeTasks_.erase(it);
         }
         return forwardError(started.error());
     }
+    EDM_LOG_INFO(taskId, "Dispatcher: task scheduled and started");
     return {};
 }
 
@@ -194,6 +212,8 @@ Dispatcher::createTask(std::shared_ptr<TaskModel> model, std::shared_ptr<TaskCon
         model->retryCount = kRetryCount;
     }
 
+    EDM_LOG_INFO(model->id, "Dispatcher: createTask, url={}", model->url);
+
     auto ctx       = std::make_shared<TaskContext>();
     ctx->model     = std::move(model);
     ctx->configure = std::move(configure);
@@ -204,12 +224,14 @@ Dispatcher::createTask(std::shared_ptr<TaskModel> model, std::shared_ptr<TaskCon
     persistTask(ctx);
     if (ctx->model->id <= kInvalidTaskID) {
         ctx->model->id = nextTransientId_.fetch_add(1, std::memory_order_relaxed);
+        EDM_LOG_DEBUG(ctx->model->id, "Dispatcher: assigned transient id");
         persistTask(ctx);
     }
 
     if (auto scheduled = scheduleTask(ctx); !scheduled) {
         return forwardError(scheduled.error());
     }
+    EDM_LOG_INFO(ctx->model->id, "Dispatcher: task created successfully");
     return ctx;
 }
 

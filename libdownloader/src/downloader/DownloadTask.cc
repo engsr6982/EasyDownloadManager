@@ -5,6 +5,7 @@
 #include "MetaInfoFetcher.h"
 #include "TaskConfigure.h"
 #include "dto/TaskContext.h"
+#include "utils/TaskLogger.h"
 
 #include <algorithm>
 #include <cassert>
@@ -105,24 +106,34 @@ DownloadTask::DownloadTask(std::shared_ptr<edm::TaskContext> ctx, StateChangedCa
     assert(context_->model);
     state_->setState(context_->model->state);
     state_->setTotalBytes(context_->model->fileSize);
+    EDM_LOG_INFO(context_->model->id, "DownloadTask created, url={}", context_->model->url);
 }
 
 DownloadTask::~DownloadTask() {
+    if (context_ && context_->model) {
+        EDM_LOG_DEBUG(context_->model->id, "DownloadTask destroying");
+    }
     isRunningFlag_->store(false, std::memory_order_release);
     joinWorkers();
     if (context_ && context_->model && context_->model->state == TaskState::Running) {
         setState(TaskState::Paused);
         saveProgress();
     }
+    if (context_ && context_->model) {
+        EDM_LOG_DEBUG(context_->model->id, "DownloadTask destroyed, releasing logger");
+        TaskLoggerManager::remove(context_->model->id);
+    }
 }
 
 void DownloadTask::setState(TaskState state) {
+    EDM_LOG_DEBUG(context_->model->id, "State transition: {} -> {}", static_cast<int>(context_->model->state), static_cast<int>(state));
     context_->model->state = state;
     state_->setState(state);
     notifyStateChanged();
 }
 
 void DownloadTask::setError(std::string message) {
+    EDM_LOG_ERROR(context_->model->id, "Error: {}", message);
     context_->model->errorMsg = std::move(message);
     state_->setErrorMessage(context_->model->errorMsg);
 }
@@ -134,21 +145,28 @@ void DownloadTask::notifyStateChanged() const {
 }
 
 Expected<> DownloadTask::prepareTask() {
+    auto taskId = context_->model->id;
+    EDM_LOG_DEBUG(taskId, "Preparing task...");
     auto model = context_->model;
     auto conf  = context_->configure;
     if (!model || !conf) {
+        EDM_LOG_ERROR(taskId, "Task model or configure is missing");
         return makeStringError("Task model or configure is missing");
     }
 
     if (!context_->meta) {
-        MetaInfoFetcher fetcher(conf);
+        EDM_LOG_DEBUG(taskId, "Fetching meta info from server");
+        MetaInfoFetcher fetcher(conf, taskId);
         auto            metaRes = fetcher.fetchAll();
         if (!metaRes) {
+            EDM_LOG_ERROR(taskId, "Meta info fetch failed: {}", metaRes.error().message());
             setError(metaRes.error().message());
             setState(TaskState::Failed);
             return makeStringError(context_->model->errorMsg);
         }
         context_->meta = std::move(metaRes.value());
+        EDM_LOG_INFO(taskId, "Meta info fetched, fileSize={}, supportRange={}",
+                     context_->meta->fileSize.value_or(-1), context_->meta->supportRange);
     }
 
     auto const& meta = *context_->meta;
@@ -163,11 +181,14 @@ Expected<> DownloadTask::prepareTask() {
             model->fileName = fileNameFromUrl(meta.finalUrl);
         }
     }
+    EDM_LOG_DEBUG(taskId, "Resolved fileName={}, fileSize={}, resumable={}",
+                  model->fileName, model->fileSize, static_cast<int>(model->resumable));
 
     state_->setTotalBytes(model->fileSize);
     std::error_code dirEc;
     std::filesystem::create_directories(conf->saveDir_, dirEc);
     if (dirEc) {
+        EDM_LOG_ERROR(taskId, "Failed to create save directory: {}", dirEc.message());
         setError("Failed to create save directory: " + dirEc.message());
         setState(TaskState::Failed);
         return makeStringError(context_->model->errorMsg);
@@ -176,8 +197,10 @@ Expected<> DownloadTask::prepareTask() {
         (std::filesystem::path(conf->saveDir_) / (sanitizeFileName(model->fileName) + kTempFileExt)).string();
     metaFilePath_ = outFilePath_ + kMetaFileExt;
     state_->setOutputPath(outFilePath_);
+    EDM_LOG_DEBUG(taskId, "Output path: {}, Meta path: {}", outFilePath_, metaFilePath_);
 
     if (model->fileSize < 0) {
+        EDM_LOG_WARN(taskId, "Unknown file size, falling back to single-thread download");
         // TODO: 非标准服务端返回数据, 转为单线程下载
         model->resumable = Resumable::No;
         state_->ranges.clear();
@@ -201,14 +224,17 @@ Expected<> DownloadTask::prepareTask() {
     std::error_code ec;
     std::filesystem::resize_file(tmpPath, model->fileSize, ec); // TODO
     if (ec) {
+        EDM_LOG_ERROR(taskId, "Failed to pre-allocate disk space: {}", ec.message());
         setError("Failed to pre-allocate disk space: " + ec.message());
         setState(TaskState::Failed);
         return makeStringError(context_->model->errorMsg);
     }
+    EDM_LOG_DEBUG(taskId, "Pre-allocated {} bytes on disk", model->fileSize);
 
     if (model->resumable != Resumable::Yes || !loadProgress()) {
         rebuildRanges();
     }
+    EDM_LOG_INFO(taskId, "Task prepared with {} range(s)", state_->ranges.size());
 
     return {};
 }
@@ -222,6 +248,7 @@ void DownloadTask::rebuildRanges() {
 
     if (model->resumable != Resumable::Yes) {
         state_->ranges.push_back(std::make_shared<DownloadRange>(0, model->fileSize - 1));
+        EDM_LOG_DEBUG(model->id, "Non-resumable: single range [0, {})", model->fileSize);
         return;
     }
 
@@ -231,11 +258,18 @@ void DownloadTask::rebuildRanges() {
         auto end = std::min<int64_t>(start + chunkSize - 1, model->fileSize - 1);
         state_->ranges.push_back(std::make_shared<DownloadRange>(start, end));
     }
+    EDM_LOG_DEBUG(model->id, "Built {} ranges with chunkSize={}, threads={}",
+                  state_->ranges.size(), chunkSize, threads);
 }
 
 bool DownloadTask::loadProgress() {
+    auto taskId = context_->model->id;
+    EDM_LOG_DEBUG(taskId, "Attempting to load progress from {}", metaFilePath_);
     std::ifstream in(metaFilePath_, std::ios::binary);
-    if (!in) return false;
+    if (!in) {
+        EDM_LOG_DEBUG(taskId, "No existing progress file, starting fresh");
+        return false;
+    }
 
     // Progress metadata is deliberately binary and versioned. It is not a security boundary,
     // but the magic/version/checksum combination prevents accidental edits from being trusted.
@@ -246,10 +280,13 @@ bool DownloadTask::loadProgress() {
     uint64_t expectedChecksum = 0;
     if (!readValue(in, magic) || !readValue(in, version) || !readValue(in, fileSize) || !readValue(in, rangeCount)
         || !readValue(in, expectedChecksum)) {
+        EDM_LOG_WARN(taskId, "Progress file read error (header)");
         return false;
     }
     if (magic != kProgressMagic || version != kProgressVersion || fileSize != context_->model->fileSize
         || rangeCount == 0) {
+        EDM_LOG_WARN(taskId, "Progress file invalid: magic={:#x}, version={}, fileSize={}, rangeCount={}",
+                     magic, version, fileSize, rangeCount);
         return false;
     }
 
@@ -263,6 +300,7 @@ bool DownloadTask::loadProgress() {
         int64_t downloaded = 0;
         uint8_t completed  = 0;
         if (!readValue(in, start) || !readValue(in, end) || !readValue(in, downloaded) || !readValue(in, completed)) {
+            EDM_LOG_WARN(taskId, "Progress file read error at range {}", i);
             state_->ranges.clear();
             return false;
         }
@@ -279,14 +317,19 @@ bool DownloadTask::loadProgress() {
 
     auto actualChecksum = fnv1a(1469598103934665603ULL, checksumBuffer.data(), checksumBuffer.size());
     if (actualChecksum != expectedChecksum) {
+        EDM_LOG_WARN(taskId, "Progress file checksum mismatch (expected={:#x}, actual={:#x})",
+                     expectedChecksum, actualChecksum);
         state_->ranges.clear();
         return false;
     }
+    EDM_LOG_INFO(taskId, "Loaded progress: {} range(s) from previous session", rangeCount);
     return !state_->ranges.empty();
 }
 
 void DownloadTask::saveProgress() const {
     if (metaFilePath_.empty() || context_->model->fileSize < 0) return;
+    auto taskId = context_->model->id;
+    EDM_LOG_DEBUG(taskId, "Saving progress to {}", metaFilePath_);
 
     // Keep the record payload separate so the checksum covers exactly the mutable range data.
     // Header fields remain readable enough for future migrations without accepting stale ranges.
@@ -302,7 +345,10 @@ void DownloadTask::saveProgress() const {
     }
 
     std::ofstream out(metaFilePath_, std::ios::binary | std::ios::trunc);
-    if (!out) return;
+    if (!out) {
+        EDM_LOG_ERROR(taskId, "Failed to open progress file for writing");
+        return;
+    }
 
     auto magic      = kProgressMagic;
     auto version    = kProgressVersion;
@@ -319,6 +365,7 @@ void DownloadTask::saveProgress() const {
 }
 
 void DownloadTask::launchWorkers() {
+    auto taskId = context_->model->id;
     joinWorkers();
     nextRangeIndex_.store(0, std::memory_order_relaxed);
     activeWorkers_.store(0, std::memory_order_relaxed);
@@ -329,6 +376,8 @@ void DownloadTask::launchWorkers() {
     workerCount     = std::max(workerCount, 1);
     workerCount     = std::min<int>(workerCount, static_cast<int>(std::max<size_t>(state_->ranges.size(), 1)));
     activeWorkers_.store(workerCount, std::memory_order_relaxed);
+
+    EDM_LOG_INFO(taskId, "Launching {} worker(s) for {} range(s)", workerCount, state_->ranges.size());
 
     workers_.reserve(static_cast<size_t>(workerCount));
     auto self = shared_from_this();
@@ -343,7 +392,9 @@ void DownloadTask::launchWorkers() {
 }
 
 void DownloadTask::workerLoop() {
-    DownloadWorker worker(context_->configure, outFilePath_, isRunningFlag_);
+    auto taskId = context_->model->id;
+    EDM_LOG_DEBUG(taskId, "Worker started");
+    DownloadWorker worker(context_->configure, outFilePath_, isRunningFlag_, taskId);
 
     while (isRunningFlag_->load(std::memory_order_acquire)) {
         auto idx = nextRangeIndex_.fetch_add(1, std::memory_order_relaxed);
@@ -352,23 +403,32 @@ void DownloadTask::workerLoop() {
         auto range = state_->ranges[idx];
         if (range->completed.load(std::memory_order_relaxed)) continue;
 
+        EDM_LOG_DEBUG(taskId, "Worker picking up range {} [{}, {})", idx, range->start, range->end + 1);
+
         auto maxRetries = std::max(context_->configure->retryCount_, 0);
         for (int attempt = 0; attempt <= maxRetries && isRunningFlag_->load(std::memory_order_acquire); ++attempt) {
             range->attempts.store(attempt, std::memory_order_relaxed);
 
             auto res = context_->model->resumable == Resumable::Yes ? worker.downloadRange(range)
                                                                     : worker.downloadWholeFile(range);
-            if (res) break;
+            if (res) {
+                EDM_LOG_DEBUG(taskId, "Range {} completed successfully", idx);
+                break;
+            }
 
             if (!isRunningFlag_->load(std::memory_order_acquire)) break;
             if (attempt == maxRetries) {
+                EDM_LOG_ERROR(taskId, "Range {} failed after {} attempts: {}", idx, attempt + 1, res.error().message());
                 setError(res.error().message());
                 isRunningFlag_->store(false, std::memory_order_release);
             } else {
+                EDM_LOG_WARN(taskId, "Range {} attempt {}/{} failed: {}, retrying...",
+                             idx, attempt + 1, maxRetries + 1, res.error().message());
                 std::this_thread::sleep_for(std::chrono::milliseconds(300 * (attempt + 1)));
             }
         }
     }
+    EDM_LOG_DEBUG(taskId, "Worker exiting");
 }
 
 void DownloadTask::joinWorkers() {
@@ -381,30 +441,42 @@ void DownloadTask::joinWorkers() {
 Expected<> DownloadTask::start() {
     std::unique_lock lock{mutex_};
     auto             model = context_->model;
+    auto             taskId = model->id;
+    EDM_LOG_INFO(taskId, "Starting task, currentState={}", static_cast<int>(model->state));
     if (model->state != TaskState::Pending && model->state != TaskState::Paused && model->state != TaskState::Failed) {
+        EDM_LOG_WARN(taskId, "Task is not startable from current state {}", static_cast<int>(model->state));
         return makeStringError("Task is not startable from current state");
     }
 
-    if (auto prepared = prepareTask(); !prepared) return prepared;
+    if (auto prepared = prepareTask(); !prepared) {
+        EDM_LOG_ERROR(taskId, "Task preparation failed: {}", prepared.error().message());
+        return prepared;
+    }
 
     model->lastTry = std::time(nullptr);
     setState(TaskState::Running);
     launchWorkers();
+    EDM_LOG_INFO(taskId, "Task started and workers launched");
     return {};
 }
 
 void DownloadTask::finalizeTask() {
     std::unique_lock lock{mutex_};
+    auto taskId = context_->model->id;
+    EDM_LOG_DEBUG(taskId, "Finalizing task...");
 
     if (context_->model->state == TaskState::Paused || context_->model->state == TaskState::Canceled) {
+        EDM_LOG_INFO(taskId, "Task was paused/canceled, saving progress");
         saveProgress();
         return;
     }
 
     int64_t totalDownloaded = getDownloadedBytes();
     state_->setDownloadedBytes(totalDownloaded);
+    EDM_LOG_DEBUG(taskId, "Total downloaded: {} / {} bytes", totalDownloaded, context_->model->fileSize);
 
     if (cancelRequested_.load(std::memory_order_acquire)) {
+        EDM_LOG_INFO(taskId, "Cancel requested, marking as canceled");
         setState(TaskState::Canceled);
         return;
     }
@@ -416,24 +488,28 @@ void DownloadTask::finalizeTask() {
     }
 
     if (context_->model->fileSize >= 0 && totalDownloaded < context_->model->fileSize) {
+        EDM_LOG_ERROR(taskId, "Download incomplete: {} < {}", totalDownloaded, context_->model->fileSize);
         setError("Download incomplete after retries");
         setState(TaskState::Failed);
         saveProgress();
         return;
     }
 
+    EDM_LOG_DEBUG(taskId, "Verifying downloaded file...");
     auto verifyRes = FileVerifier::verify(
         outFilePath_,
         context_->model->fileSize,
         context_->meta ? context_->meta->md5 : std::optional<std::string>{}
     );
     if (!verifyRes) {
+        EDM_LOG_ERROR(taskId, "File verification failed: {}", verifyRes.error().message());
         setError(verifyRes.error().message());
         setState(TaskState::Failed);
         saveProgress();
         return;
     }
     if (!verifyRes.value().ok) {
+        EDM_LOG_ERROR(taskId, "File verification mismatch: {}", verifyRes.value().message);
         setError(verifyRes.value().message);
         setState(TaskState::Failed);
         saveProgress();
@@ -446,6 +522,7 @@ void DownloadTask::finalizeTask() {
     std::error_code ec;
     std::filesystem::rename(outFilePath_, finalPath, ec);
     if (ec) {
+        EDM_LOG_ERROR(taskId, "Failed to move completed file: {}", ec.message());
         setError("Failed to move completed file: " + ec.message());
         setState(TaskState::Failed);
         saveProgress();
@@ -457,6 +534,7 @@ void DownloadTask::finalizeTask() {
     currentSpeed_             = 0.0;
     state_->setSpeed(0.0);
     state_->setOutputPath(finalPath.string());
+    EDM_LOG_INFO(taskId, "Download completed: {}", finalPath.string());
     setState(TaskState::Finished);
 }
 
@@ -464,13 +542,16 @@ Expected<> DownloadTask::pause() {
     {
         std::unique_lock lock{mutex_};
         if (context_->model->state != TaskState::Running) {
+            EDM_LOG_WARN(context_->model->id, "Cannot pause: task is not running");
             return makeStringError("Only running tasks can be paused");
         }
+        EDM_LOG_INFO(context_->model->id, "Pausing task");
         setState(TaskState::Paused);
         isRunningFlag_->store(false, std::memory_order_release);
     }
     joinWorkers();
     saveProgress();
+    EDM_LOG_INFO(context_->model->id, "Task paused, progress saved");
     return {};
 }
 
@@ -480,8 +561,10 @@ Expected<> DownloadTask::cancel() {
     {
         std::unique_lock lock{mutex_};
         if (context_->model->state != TaskState::Running && context_->model->state != TaskState::Paused) {
+            EDM_LOG_WARN(context_->model->id, "Cannot cancel: task is not running or paused");
             return makeStringError("Only running or paused tasks can be canceled");
         }
+        EDM_LOG_INFO(context_->model->id, "Canceling task");
         cancelRequested_.store(true, std::memory_order_release);
         setState(TaskState::Canceled);
         isRunningFlag_->store(false, std::memory_order_release);
@@ -491,6 +574,7 @@ Expected<> DownloadTask::cancel() {
     std::error_code ec;
     std::filesystem::remove(outFilePath_, ec);
     std::filesystem::remove(metaFilePath_, ec);
+    EDM_LOG_INFO(context_->model->id, "Task canceled, temp files removed");
     return {};
 }
 

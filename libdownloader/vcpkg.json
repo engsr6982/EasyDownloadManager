@@ -4,6 +4,7 @@
   "builtin-baseline": "b5d1a94fb7f88fd835e360fd23a45a09ceedbf48",
   "dependencies": [
     "fmt",
+    "spdlog",
     "expected-lite",
     {
       "name": "curl",
@@ -18,6 +19,10 @@
     {
       "name": "fmt",
       "version-string": "12.1.0"
+    },
+    {
+      "name": "spdlog",
+      "version-string": "1.17.0"
     },
     {
       "name": "expected-lite",

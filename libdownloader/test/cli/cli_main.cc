@@ -4,6 +4,7 @@
 #include "downloader/TaskConfigure.h"
 #include "dto/TaskContext.h"
 #include "model/TaskModel.h"
+#include "utils/TaskLogger.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -106,6 +107,8 @@ int main(int argc, char* argv[]) try {
     }
 
     auto configure = edm::TaskConfigure::fromUrl(url, outputDir, std::move(defaults));
+
+    edm::TaskLoggerManager::init();
 
     std::shared_ptr<edm::TaskModel> latestModel;
     edm::Dispatcher                 dispatcher({

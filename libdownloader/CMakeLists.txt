@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(CURL REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 find_package(expected-lite CONFIG REQUIRED)
 
 set(LIBDOWNLOADER_SOURCES
@@ -16,6 +17,8 @@ set(LIBDOWNLOADER_SOURCES
         src/dto/TaskContext.h
         src/expected.h
         src/model/TaskModel.h
+        src/utils/TaskLogger.h
+        src/utils/TaskLogger.cc
         src/downloader/DownloadTask.cc
         src/downloader/DownloadTask.h
         src/downloader/DownloadWorker.cc
@@ -47,6 +50,7 @@ target_include_directories(libdownloader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(libdownloader PUBLIC
         NOMINMAX
         CURL_STATICLIB
+        SPDLOG_FMT_EXTERNAL
 )
 
 if (MSVC)
@@ -60,6 +64,7 @@ endif()
 target_link_libraries(libdownloader PUBLIC
         CURL::libcurl
         fmt::fmt
+        spdlog::spdlog
         nonstd::expected-lite
 )
 

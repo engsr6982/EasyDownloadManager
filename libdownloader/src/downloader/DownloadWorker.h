@@ -1,5 +1,6 @@
 #pragma once
 #include "expected.h"
+#include "Global.h"
 
 #include <atomic>
 #include <cstdint>
@@ -20,12 +21,14 @@ class DownloadWorker final {
     std::shared_ptr<TaskConfigure>     config_;
     std::string                        outFilePath_;
     std::shared_ptr<std::atomic<bool>> isTaskRunning_; // 用于接收上层的暂停/取消指令
+    TaskId                             taskId_;
 
 public:
     DownloadWorker(
         std::shared_ptr<TaskConfigure>     config,
         std::string                        outFilePath,
-        std::shared_ptr<std::atomic<bool>> isTaskRunning
+        std::shared_ptr<std::atomic<bool>> isTaskRunning,
+        TaskId                             taskId = kInvalidTaskID
     );
     ~DownloadWorker();
 
