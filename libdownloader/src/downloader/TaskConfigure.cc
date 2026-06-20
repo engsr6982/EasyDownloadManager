@@ -39,7 +39,8 @@ Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
     curl.setOpt(CURLOPT_URL, url_.c_str())  // 设置地址
         .setOpt(CURLOPT_FOLLOWLOCATION, 1L) // 跟随重定向
         .setOpt(CURLOPT_NOSIGNAL, 1L)
-        .setOpt(CURLOPT_FAILONERROR, 1L);
+        .setOpt(CURLOPT_FAILONERROR, 1L)
+        .setOpt(CURLOPT_NOPROXY, "localhost,127.0.0.1,::1"); // 本地回环地址忽略代理
 
     if (userAgent_) {
         curl.setOpt(CURLOPT_USERAGENT, userAgent_->c_str()); // 设置 User-Agent
@@ -72,16 +73,16 @@ Expected<downloader::CurlEx> TaskConfigure::newCurl() const {
 
 std::shared_ptr<TaskConfigure>
 TaskConfigure::fromUrl(std::string const& url, std::string const& saveDir, TaskConfigureDefaults defaults) {
-    auto configure          = std::make_shared<TaskConfigure>();
-    configure->url_         = url;
-    configure->saveDir_     = saveDir;
-    configure->threadCount_ = defaults.threadCount > 0 ? defaults.threadCount
-                                                       : static_cast<int>(GlobalDefaults::kDefaultThreadCount);
-    configure->bandLimit_   = defaults.bandLimit >= 0 ? defaults.bandLimit : GlobalDefaults::kDefaultBandwidthLimit;
-    configure->retryCount_  = defaults.retryCount >= 0 ? defaults.retryCount : kRetryCount;
-    configure->userAgent_   = std::move(defaults.userAgent);
-    configure->origin_      = originFromUrl(url);
-    configure->proxyUrl_    = std::move(defaults.proxyUrl);
+    auto configure      = std::make_shared<TaskConfigure>();
+    configure->url_     = url;
+    configure->saveDir_ = saveDir;
+    configure->threadCount_ =
+        defaults.threadCount > 0 ? defaults.threadCount : static_cast<int>(GlobalDefaults::kDefaultThreadCount);
+    configure->bandLimit_  = defaults.bandLimit >= 0 ? defaults.bandLimit : GlobalDefaults::kDefaultBandwidthLimit;
+    configure->retryCount_ = defaults.retryCount >= 0 ? defaults.retryCount : kRetryCount;
+    configure->userAgent_  = std::move(defaults.userAgent);
+    configure->origin_     = originFromUrl(url);
+    configure->proxyUrl_   = std::move(defaults.proxyUrl);
 
     return configure;
 }
