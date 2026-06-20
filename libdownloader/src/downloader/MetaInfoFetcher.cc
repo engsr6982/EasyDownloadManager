@@ -6,9 +6,7 @@
 namespace edm ::downloader {
 
 namespace {
-size_t discardCallback(char*, size_t size, size_t nmemb, void*) {
-    return size * nmemb;
-}
+size_t discardCallback(char*, size_t size, size_t nmemb, void*) { return size * nmemb; }
 } // namespace
 
 
@@ -20,6 +18,11 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     if (!ex_res) return forwardError(ex_res.error());
 
     CurlEx curl = std::move(ex_res.value());
+
+    // 显式将当前探测请求的 FAILONERROR 关闭（设为 0L）。
+    // 因为 Meta 探测阶段的职责是“观察者”，无论服务器返回 200、206 还是 403，
+    // 都是极其重要的业务信号，必须放行 perform()，让状态码能安全流转到后方的 getInfo 中。
+    curl.setOpt(CURLOPT_FAILONERROR, 0L);
 
     curl.setOpt(CURLOPT_HEADER, 1L);
     curl.setOpt(CURLOPT_RANGE, "0-0");

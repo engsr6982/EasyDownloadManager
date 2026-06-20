@@ -72,6 +72,11 @@ int main(int argc, char* argv[]) try {
 
     auto url       = getRequired(args, "--url");
     auto outputDir = getRequired(args, "--output-dir");
+
+    // to absolute path
+    if (std::filesystem::path(outputDir).is_relative()) {
+        outputDir = std::filesystem::absolute(outputDir).string();
+    }
     std::filesystem::create_directories(outputDir);
 
     auto threads        = parseInt(args, "--threads", 4);
@@ -104,20 +109,17 @@ int main(int argc, char* argv[]) try {
 
     std::shared_ptr<edm::TaskModel> latestModel;
     edm::Dispatcher                 dispatcher({
-        .taskLoader =
-            [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskModel> {
-                return latestModel && latestModel->id == id ? latestModel : nullptr;
-            },
-        .onTaskChanged =
+                        .taskLoader = [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskModel> {
+            return latestModel && latestModel->id == id ? latestModel : nullptr;
+        },
+                        .onTaskChanged =
             [&latestModel](std::shared_ptr<edm::TaskContext> const& ctx) {
                 if (ctx && ctx->model) {
                     latestModel = ctx->model;
                 }
             },
-        .configureFactory =
-            [](std::shared_ptr<edm::TaskModel> const& task) {
-                return std::make_shared<edm::TaskConfigure>(task);
-            },
+                        .configureFactory =
+            [](std::shared_ptr<edm::TaskModel> const& task) { return std::make_shared<edm::TaskConfigure>(task); },
     });
 
     auto created = dispatcher.createTask(model, configure);

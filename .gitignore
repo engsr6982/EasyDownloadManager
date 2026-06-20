@@ -87,3 +87,5 @@ compile_commands.json
 out/
 node_modules 
 *.log
+.vscode
+.temp

@@ -3,42 +3,52 @@ const express = require("express");
 const app = express();
 const port = Number(process.env.PORT || 3187);
 
-// 核心修改：升级为 1GB (1024 * 1024 * 1024)
 const size = Number(process.env.TEST_FILE_SIZE || 1073741824);
 const fileName = process.env.TEST_FILE_NAME || "libdownloader-test.bin";
+const etag = `"mock-etag-1gb"`;
 
 app.get("/health", (req, res) => {
   res.json({ ok: true, size, fileName });
 });
 
 app.get("/file", (req, res) => {
-  console.log(`[>>] request: ${req.url}`);
+  console.log(`\n--- Request: ${req.method} ${req.url} ---`);
+  console.log("Request Headers:\n", req.headers);
+
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+  res.setHeader("ETag", etag);
 
   const range = req.headers.range;
 
-  // 1. 处理没有 Range 的普通下载 (完整 1GB 下载)
+  const sendHeaders = (statusCode) => {
+    res.status(statusCode);
+    console.log(`Response Status: ${statusCode}`);
+    console.log("Response Headers:\n", res.getHeaders());
+  };
+
+  // 1. 无 Range 请求 (200)
   if (!range) {
-    res.setHeader("Content-Length", size);
-    res.status(200);
-    sendVirtualFile(res, 0, size - 1);
-    console.log(`[<<] simple http download request, return 200...`);
+    res.setHeader("Content-Length", String(size));
+    sendHeaders(200);
+    sendVirtualFile(req, res, 0, size - 1);
     return;
   }
 
   // 2. 解析 Range 请求
   const match = /^bytes=(\d*)-(\d*)$/.exec(range);
   if (!match) {
-    res.status(416).end();
-    console.log(`[<<] invalid range request, return 416...`);
+    res.setHeader("Content-Range", `bytes */${size}`);
+    sendHeaders(416);
+    res.end();
     return;
   }
 
   const start = match[1] === "" ? 0 : Number(match[1]);
   const end = match[2] === "" ? size - 1 : Number(match[2]);
 
+  // 3. 校验 Range 边界 (416)
   if (
     !Number.isInteger(start) ||
     !Number.isInteger(end) ||
@@ -46,36 +56,43 @@ app.get("/file", (req, res) => {
     end < start ||
     end >= size
   ) {
-    res.status(416).end();
-    console.log(`[<<] invalid range request, return 416...`);
+    res.setHeader("Content-Range", `bytes */${size}`);
+    sendHeaders(416);
+    res.end();
     return;
   }
 
-  console.log(`[>>] request range: ${start}-${end}`);
-
-  // 3. 返回 206 局部内容
+  // 4. 合法分片请求 (206)
   const contentLength = end - start + 1;
-  res.status(206);
   res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
-  res.setHeader("Content-Length", contentLength);
+  res.setHeader("Content-Length", String(contentLength));
 
-  sendVirtualFile(res, start, end);
+  sendHeaders(206);
+  sendVirtualFile(req, res, start, end);
 });
 
-// 虚拟文件生成器：不占内存，按需通过流输出特定区间的虚拟数据
-function sendVirtualFile(res, start, end) {
+function sendVirtualFile(req, res, start, end) {
   let current = start;
-  const chunkSize = 64 * 1024; // 每次发送 64KB 的数据块
+  const chunkSize = 64 * 1024;
+  let isClosed = false;
+
+  req.on("close", () => {
+    isClosed = true;
+    console.log(
+      `[Abort] Connection closed by client. Progress: ${current}/${end}`,
+    );
+  });
 
   function writeNext() {
+    if (isClosed) return;
+
     let canWrite = true;
-    while (current <= end && canWrite) {
+    while (current <= end && canWrite && !isClosed) {
       const remaining = end - current + 1;
       const currentChunkSize = Math.min(chunkSize, remaining);
 
       const buffer = Buffer.allocUnsafe(currentChunkSize);
       for (let i = 0; i < currentChunkSize; i++) {
-        // 保持算法与原先一致：i + current 即当前的绝对 offset
         buffer[i] = (current + i) % 251;
       }
 
@@ -83,7 +100,8 @@ function sendVirtualFile(res, start, end) {
       canWrite = res.write(buffer);
     }
 
-    if (current > end) {
+    if (current > end && !isClosed) {
+      console.log(`[Done] Transfer complete: ${start}-${end}`);
       res.end();
     }
   }
@@ -93,9 +111,5 @@ function sendVirtualFile(res, start, end) {
 }
 
 app.listen(port, "127.0.0.1", () => {
-  console.log(
-    `libdownloader test server listening on http://127.0.0.1:${port}`,
-  );
-  console.log(`Virtual file size target: ${size} bytes (~1GB)`);
-  console.log(`Test Download url: http://127.0.0.1:${port}/file`);
+  console.log(`Test server running on http://127.0.0.1:${port}/file`);
 });

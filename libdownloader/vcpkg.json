@@ -22,6 +22,10 @@
     {
       "name": "expected-lite",
       "version-string": "0.10.0"
+    },
+    {
+      "name": "curl",
+      "version-string": "8.20.0"
     }
   ]
 }

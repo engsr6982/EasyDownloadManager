@@ -178,9 +178,17 @@ Expected<> DownloadTask::prepareTask() {
     state_->setOutputPath(outFilePath_);
 
     if (model->fileSize < 0) {
+        // TODO: 非标准服务端返回数据, 转为单线程下载
         model->resumable = Resumable::No;
         state_->ranges.clear();
         state_->ranges.push_back(std::make_shared<DownloadRange>(0, -1));
+
+        // Ensure the temp file exists so that downloadWholeFile can open it.
+        std::filesystem::path tmpPath(outFilePath_);
+        if (!std::filesystem::exists(tmpPath)) {
+            std::ofstream ofs(tmpPath, std::ios::binary);
+            ofs.close();
+        }
         return {};
     }
 
