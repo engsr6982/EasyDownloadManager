@@ -61,6 +61,11 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     }
     EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: HTTP response code = {}", responseCode);
 
+    if (responseCode >= 400) {
+        EDM_LOG_ERROR(taskId_, "MetaInfoFetcher: HTTP error {}", responseCode);
+        return makeStringError("HTTP error: " + std::to_string(responseCode));
+    }
+
     if (responseCode == 206) {
         // 206 Partial Content: 支持断点续传
         info.supportRange = true;
