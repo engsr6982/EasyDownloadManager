@@ -38,6 +38,7 @@ public:
 
 private:
     static size_t writeCallback(char* ptr, size_t size, size_t nmemb, void* userdata);
+    static size_t headerCallback(char* ptr, size_t size, size_t nmemb, void* userdata);
 };
 
 } // namespace edm::downloader

@@ -3,7 +3,6 @@
 #include "DownloadTypes.h"
 #include "utils/TaskLogger.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <fmt/format.h>
 
@@ -30,6 +29,7 @@ struct WorkerContext {
     std::FILE*         fp;
     DownloadRange*     range;
     std::atomic<bool>* isTaskRunning;
+    bool               rangeValidated{false}; // 为 true 表示服务端确认返回了 Content-Range (206 响应)
 };
 
 size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
@@ -38,6 +38,12 @@ size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void*
     // 如果上层调用了 pause() 或 cancel()，isRunning 变成 false
     if (!ctx->isTaskRunning->load(std::memory_order_relaxed)) {
         return 0; // 中断 libcurl 传输
+    }
+
+    // 如果尚未验证通过 Content-Range 头，说明服务端未按 Range 请求返回 206，
+    // 此时 body 数据是完整文件而非分片，立即中断以防止数据写入错误的文件偏移。
+    if (!ctx->rangeValidated) {
+        return 0;
     }
 
     size_t totalBytes = size * nmemb;
@@ -51,6 +57,18 @@ size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void*
     ctx->range->downloaded.fetch_add(totalBytes, std::memory_order_relaxed);
 
     return totalBytes;
+}
+
+size_t DownloadWorker::headerCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    auto ctx = static_cast<WorkerContext*>(userdata);
+
+    // 检查响应头中是否包含 Content-Range
+    std::string_view data(ptr, size * nmemb);
+    if (data.find("Content-Range:") != std::string_view::npos ||
+        data.find("content-range:") != std::string_view::npos) {
+        ctx->rangeValidated = true;
+    }
+    return size * nmemb;
 }
 
 Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& range) const {
@@ -105,8 +123,9 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     curl.setOpt(CURLOPT_RANGE, rangeStr.c_str());
     EDM_LOG_TRACE(config_->id, "downloadRange: requesting bytes {}", rangeStr);
 
-    // 设置写入回调
-    WorkerContext ctx{fp, range.get(), isTaskRunning_.get()};
+    WorkerContext ctx{fp, range.get(), isTaskRunning_.get(), /*rangeValidated=*/false};
+    curl.setOpt(CURLOPT_HEADERFUNCTION, headerCallback);
+    curl.setOpt(CURLOPT_HEADERDATA, &ctx);
     curl.setOpt(CURLOPT_WRITEFUNCTION, writeCallback);
     curl.setOpt(CURLOPT_WRITEDATA, &ctx);
 
@@ -172,7 +191,8 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
     }
     CurlEx curl = std::move(curlExRes.value());
 
-    WorkerContext ctx{fp, range.get(), isTaskRunning_.get()};
+    // downloadWholeFile 不需要范围校验（从偏移 0 写全文件是正确的）
+    WorkerContext ctx{fp, range.get(), isTaskRunning_.get(), /*rangeValidated=*/true};
     curl.setOpt(CURLOPT_WRITEFUNCTION, writeCallback);
     curl.setOpt(CURLOPT_WRITEDATA, &ctx);
 
@@ -183,6 +203,16 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
     if (!performRes) {
         EDM_LOG_ERROR(config_->id, "downloadWholeFile: CURL perform failed: {}", performRes.error().message());
         return forwardError(performRes.error());
+    }
+
+    long responseCode = 0;
+    if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
+        EDM_LOG_ERROR(config_->id, "downloadWholeFile: failed to get response code: {}", responseCodeRes.error().message());
+        return forwardError(responseCodeRes.error());
+    }
+    if (responseCode != 200 && responseCode != 206) {
+        EDM_LOG_ERROR(config_->id, "downloadWholeFile: unexpected HTTP {}", responseCode);
+        return makeStringError(fmt::format("Unexpected HTTP response: {}", responseCode));
     }
 
     EDM_LOG_INFO(
