@@ -4,15 +4,26 @@
 #include "curl/curl.h"
 
 #include <optional>
+#include <string>
+#include <vector>
+
+#include <fmt/format.h>
+
+namespace edm {
+struct TaskConfigure;
+}
 
 namespace edm::downloader {
 
-struct CurlCodeError : IErrorInfo {
-    CURLcode code;
-
-    CurlCodeError(CURLcode code) : code(code) {}
-    std::string message() const noexcept override;
-};
+inline auto makeCurlError(CURLcode code) {
+    return makeError(
+        [](std::any const& data) -> std::string {
+            auto code = std::any_cast<CURLcode>(data);
+            return fmt::format("curl error ({}): {}", (int)code, curl_easy_strerror(code));
+        },
+        code
+    );
+}
 
 class CurlEx {
     CURL* curl_{nullptr};
@@ -48,7 +59,7 @@ public:
     CurlEx& setOpt(CURLoption opt, Args&&... args) {
         if (!status_) return *this;
         if (auto code = curl_easy_setopt(curl_, opt, std::forward<Args>(args)...); code != CURLE_OK) {
-            status_ = makeError<CurlCodeError>(code);
+            status_ = makeCurlError(code);
         }
         return *this;
     }
@@ -77,7 +88,7 @@ public:
     Expected<> getInfo(CURLINFO info, Args&&... args) {
         if (!status_) return forwardError(status_.error());
         auto code = curl_easy_getinfo(curl_, info, std::forward<Args>(args)...);
-        if (code != CURLE_OK) return makeError<CurlCodeError>(code);
+        if (code != CURLE_OK) return makeCurlError(code);
         return {};
     }
 
@@ -87,6 +98,8 @@ public:
      * @return 如果存在则返回对应的值，不存在则返回 nullopt
      */
     std::optional<std::string> getHeader(const std::string& name) const;
+
+    static Expected<downloader::CurlEx> fromConfigure(std::shared_ptr<TaskConfigure> const& cfg);
 };
 
 } // namespace edm::downloader

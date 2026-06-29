@@ -2,35 +2,32 @@ cmake_minimum_required(VERSION 3.16)
 
 project(libdownloader VERSION 0.1 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(GNUInstallDirs)
 
 find_package(CURL REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(expected-lite CONFIG REQUIRED)
+find_package(glaze CONFIG REQUIRED)
 
 set(LIBDOWNLOADER_SOURCES
         src/Dispatcher.cc
         src/Dispatcher.h
         src/Global.h
-        src/dto/TaskContext.h
         src/expected.h
-        src/model/TaskModel.h
         src/utils/TaskLogger.h
         src/utils/TaskLogger.cc
+        src/downloader/DownloadTypes.h
         src/downloader/DownloadTask.cc
         src/downloader/DownloadTask.h
         src/downloader/DownloadWorker.cc
         src/downloader/DownloadWorker.h
-        src/downloader/DownloadState.h
         src/downloader/CurlEx.h
         src/downloader/CurlEx.cc
-        src/downloader/FetchedMetaInfo.h
         src/downloader/FileVerifier.cc
         src/downloader/FileVerifier.h
-        src/downloader/TaskConfigure.h
-        src/downloader/TaskConfigure.cc
         src/downloader/MetaInfoFetcher.cc
         src/downloader/MetaInfoFetcher.h
 )
@@ -44,7 +41,10 @@ set_target_properties(libdownloader PROPERTIES
         AUTORCC OFF
 )
 
-target_include_directories(libdownloader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(libdownloader PUBLIC 
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
 target_include_directories(libdownloader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_definitions(libdownloader PUBLIC
@@ -65,12 +65,34 @@ target_link_libraries(libdownloader PUBLIC
         CURL::libcurl
         fmt::fmt
         spdlog::spdlog
-        nonstd::expected-lite
+        glaze::glaze
 )
 
 if (WIN32)
     target_link_libraries(libdownloader PUBLIC bcrypt)
 endif()
+
+# 1. 安装生成的静态库（.lib）并关联到一个导出集
+install(TARGETS libdownloader
+    EXPORT libdownloader-targets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# 2. 安装整个 src 目录下的头文件，并完美保留其子目录结构（如 utils/, downloader/）
+install(DIRECTORY src/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING
+    PATTERN "*.h"
+)
+
+# 3. 导出 CMake 配置文件，使得主项目可以通过 find_package(libdownloader CONFIG REQUIRED) 完美链接
+install(EXPORT libdownloader-targets
+    FILE libdownloaderTargets.cmake
+    NAMESPACE libdownloader::
+    DESTINATION share/libdownloader
+)
 
 set(LIBDOWNLOADER_IS_TOP_LEVEL OFF)
 if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)

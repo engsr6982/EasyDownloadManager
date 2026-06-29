@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const express = require("express");
 
 const app = express();
@@ -75,6 +76,7 @@ function sendVirtualFile(req, res, start, end) {
   let current = start;
   const chunkSize = 64 * 1024;
   let isClosed = false;
+  const md5 = crypto.createHash("md5");
 
   req.on("close", () => {
     isClosed = true;
@@ -96,12 +98,14 @@ function sendVirtualFile(req, res, start, end) {
         buffer[i] = (current + i) % 251;
       }
 
+      md5.update(buffer);
       current += currentChunkSize;
       canWrite = res.write(buffer);
     }
 
     if (current > end && !isClosed) {
-      console.log(`[Done] Transfer complete: ${start}-${end}`);
+      const hash = md5.digest("hex");
+      console.log(`[Done] Transfer complete: ${start}-${end}, MD5: ${hash}`);
       res.end();
     }
   }

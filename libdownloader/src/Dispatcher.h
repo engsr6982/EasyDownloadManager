@@ -1,18 +1,16 @@
 #pragma once
+#include "Global.h"
 #include "expected.h"
-#include "model/TaskModel.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <atomic>
 #include <unordered_map>
 
 
 namespace edm {
 
-struct TaskContext;
-struct TaskModel;
 struct TaskConfigure;
 
 namespace downloader {
@@ -23,14 +21,12 @@ class DownloadTask;
 
 class Dispatcher {
 public:
-    using TaskLoader           = std::function<std::shared_ptr<TaskModel>(TaskId)>;
-    using TaskChangedCallback  = std::function<void(std::shared_ptr<TaskContext> const&)>;
-    using TaskConfigureFactory = std::function<std::shared_ptr<TaskConfigure>(std::shared_ptr<TaskModel> const&)>;
+    using TaskLoader           = std::function<std::shared_ptr<TaskConfigure>(TaskId)>;
+    using TaskChangedCallback  = std::function<void(std::shared_ptr<TaskConfigure> const&)>;
 
     struct Options {
         TaskLoader           taskLoader;
         TaskChangedCallback  onTaskChanged;
-        TaskConfigureFactory configureFactory;
     };
 
 private:
@@ -38,19 +34,16 @@ private:
     std::mutex                                                            tasksMutex_;
     TaskLoader                                                            taskLoader_;
     TaskChangedCallback                                                   onTaskChanged_;
-    TaskConfigureFactory                                                  configureFactory_;
-    std::atomic<TaskId>                                                    nextTransientId_{1};
 
-    [[nodiscard]] std::shared_ptr<TaskConfigure> makeConfigure(std::shared_ptr<TaskModel> const& model) const;
-    void persistTask(std::shared_ptr<TaskContext> const& ctx) const;
-    [[nodiscard]] Expected<> scheduleTask(std::shared_ptr<TaskContext> task);
+    void                     persistTask(std::shared_ptr<TaskConfigure> const& ctx) const;
+    [[nodiscard]] Expected<> scheduleTask(std::shared_ptr<TaskConfigure> task);
 
 public:
     explicit Dispatcher(Options options = {});
     ~Dispatcher();
 
     std::shared_ptr<downloader::DownloadState> getTaskState(TaskId id);
-    std::shared_ptr<TaskModel> getTaskModel(TaskId id);
+    std::shared_ptr<TaskConfigure>             getTaskConfigure(TaskId id);
 
     void updateAllSpeeds();
 
@@ -60,8 +53,7 @@ public:
     Expected<> resumeTask(TaskId id);
     Expected<> cancelTask(TaskId id);
 
-    [[nodiscard]] Expected<std::shared_ptr<TaskContext>>
-    createTask(std::shared_ptr<TaskModel> model, std::shared_ptr<TaskConfigure> configure = nullptr);
+    [[nodiscard]] Expected<> createTask(std::shared_ptr<TaskConfigure> configure);
 };
 
 } // namespace edm

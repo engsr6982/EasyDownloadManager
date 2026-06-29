@@ -1,9 +1,6 @@
 #include "Dispatcher.h"
 #include "Global.h"
-#include "downloader/DownloadState.h"
-#include "downloader/TaskConfigure.h"
-#include "dto/TaskContext.h"
-#include "model/TaskModel.h"
+#include "downloader/DownloadTypes.h"
 #include "utils/TaskLogger.h"
 
 #include <chrono>
@@ -24,7 +21,7 @@ namespace {
 
 void printUsage(char const* program) {
     std::cerr << "Usage: " << program
-              << " --url <url> --output-dir <dir> [--threads <n>] [--retry <n>]"
+              << " --url <url> --output-dir <dir> [--threads <n>]"
                  " [--timeout-seconds <n>] [--user-agent <value>] [--proxy <url>]\n";
 }
 
@@ -81,74 +78,52 @@ int main(int argc, char* argv[]) try {
     std::filesystem::create_directories(outputDir);
 
     auto threads        = parseInt(args, "--threads", 4);
-    auto retries        = parseInt(args, "--retry", 2);
     auto timeoutSeconds = parseInt(args, "--timeout-seconds", 30);
 
-    auto model         = edm::TaskModel::make();
-    model->url         = url;
-    model->saveDir     = outputDir;
-    model->threadCount = threads;
-    model->retryCount  = retries;
-    model->bandLimit   = edm::GlobalDefaults::kDefaultBandwidthLimit;
-    model->state       = edm::TaskState::Pending;
-    model->firstTry    = std::time(nullptr);
-    model->lastTry     = model->firstTry;
+    static edm::TaskId alloc = 0;
+    auto               id    = ++alloc;
 
-    edm::TaskConfigureDefaults defaults;
-    defaults.threadCount = threads;
-    defaults.retryCount  = retries;
-    defaults.bandLimit   = model->bandLimit;
+    auto configure = std::make_shared<edm::TaskConfigure>(id, url, outputDir);
+
+    configure->threads = (edm::AvailableThreads)threads;
+
     if (auto it = args.find("--user-agent"); it != args.end()) {
-        defaults.userAgent = it->second;
-        model->userAgent   = it->second;
+        configure->userAgent = it->second;
     }
     if (auto it = args.find("--proxy"); it != args.end()) {
-        defaults.proxyUrl = it->second;
+        configure->proxyUrl = it->second;
     }
-
-    auto configure = edm::TaskConfigure::fromUrl(url, outputDir, std::move(defaults));
 
     edm::TaskLoggerManager::init();
 
-    std::shared_ptr<edm::TaskModel> latestModel;
-    edm::Dispatcher                 dispatcher({
-                        .taskLoader = [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskModel> {
+    std::shared_ptr<edm::TaskConfigure> latestModel;
+    edm::Dispatcher                     dispatcher({
+                            .taskLoader = [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskConfigure> {
             return latestModel && latestModel->id == id ? latestModel : nullptr;
         },
-                        .onTaskChanged =
-            [&latestModel](std::shared_ptr<edm::TaskContext> const& ctx) {
-                if (ctx && ctx->model) {
-                    latestModel = ctx->model;
-                }
-            },
-                        .configureFactory =
-            [](std::shared_ptr<edm::TaskModel> const& task) { return std::make_shared<edm::TaskConfigure>(task); },
+                            .onTaskChanged = [&latestModel](std::shared_ptr<edm::TaskConfigure> const& ctx) { latestModel = ctx; },
+
     });
 
-    auto created = dispatcher.createTask(model, configure);
+    auto created = dispatcher.createTask(configure);
     if (!created) {
         std::cerr << "create_error=" << created.error().message() << '\n';
-        if (model->id > edm::kInvalidTaskID) {
-            std::cerr << "task_id=" << model->id << '\n';
-            std::cerr << "task_state=Failed\n";
-            std::cerr << "error_message=" << model->errorMsg << '\n';
-        }
+        std::cerr << "task_state=Failed\n";
         return EXIT_FAILURE;
     }
 
-    auto taskId   = created.value()->model->id;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);
 
     while (std::chrono::steady_clock::now() < deadline) {
-        dispatcher.updateSpeed(taskId);
-        auto state = dispatcher.getTaskState(taskId);
+        dispatcher.updateSpeed(id);
+        auto state = dispatcher.getTaskState(id);
         if (!state) {
             std::cerr << "state_error=missing task state\n";
             return EXIT_FAILURE;
         }
         if (isTerminal(state->state())) {
             auto finalState = state->state();
-            std::cout << "task_id=" << taskId << '\n';
+            std::cout << "task_id=" << id << '\n';
             std::cout << "downloaded_bytes=" << state->downloadedBytes() << '\n';
             std::cout << "total_bytes=" << state->totalBytes() << '\n';
             std::cout << "output_path=" << state->outputPath() << '\n';

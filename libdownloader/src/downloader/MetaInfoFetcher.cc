@@ -1,7 +1,7 @@
 #include "MetaInfoFetcher.h"
 #include "CurlEx.h"
-#include "FetchedMetaInfo.h"
-#include "TaskConfigure.h"
+#include "DownloadTypes.h"
+#include "Global.h"
 #include "utils/TaskLogger.h"
 
 namespace edm ::downloader {
@@ -10,17 +10,17 @@ namespace {
 size_t discardCallback(char*, size_t size, size_t nmemb, void*) { return size * nmemb; }
 } // namespace
 
+Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskConfigure> const& configure) {
+    if (!configure) {
+        EDM_LOG_ERROR(kInvalidTaskID, "MetaInfoFetcher: configure is null");
+        return makeStringError("configure is null");
+    }
 
-MetaInfoFetcher::MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure, TaskId taskId)
-: configure_(std::move(configure)), taskId_(taskId) {}
+    EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: fetching meta from {}", configure->url);
 
-
-Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
-    EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: fetching meta from {}", configure_->url_);
-
-    auto ex_res = configure_->newCurl();
+    auto ex_res = CurlEx::fromConfigure(configure);
     if (!ex_res) {
-        EDM_LOG_ERROR(taskId_, "MetaInfoFetcher: failed to create CURL handle: {}", ex_res.error().message());
+        EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: failed to create CURL handle: {}", ex_res.error().message());
         return forwardError(ex_res.error());
     }
 
@@ -35,10 +35,10 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     curl.setOpt(CURLOPT_RANGE, "0-0");
     curl.setOpt(CURLOPT_WRITEFUNCTION, discardCallback);
 
-    EDM_LOG_TRACE(taskId_, "MetaInfoFetcher: performing HEAD-like request with Range: 0-0");
+    EDM_LOG_TRACE(configure->id, "MetaInfoFetcher: performing HEAD-like request with Range: 0-0");
 
     if (auto res = curl.perform(); !res) {
-        EDM_LOG_ERROR(taskId_, "MetaInfoFetcher: CURL perform failed: {}", res.error().message());
+        EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: CURL perform failed: {}", res.error().message());
         return forwardError(res.error());
     }
 
@@ -49,20 +49,24 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     if (curl.getInfo(CURLINFO_EFFECTIVE_URL, &fUrl) && fUrl) {
         info.finalUrl = fUrl;
     } else {
-        info.finalUrl = configure_->url_;
+        info.finalUrl = configure->url;
     }
-    EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: effective URL = {}", info.finalUrl);
+    EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: effective URL = {}", info.finalUrl);
 
     // 是否支持 Range 及真实大小
     long responseCode = 0;
     if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
-        EDM_LOG_ERROR(taskId_, "MetaInfoFetcher: failed to get response code: {}", responseCodeRes.error().message());
+        EDM_LOG_ERROR(
+            configure->id,
+            "MetaInfoFetcher: failed to get response code: {}",
+            responseCodeRes.error().message()
+        );
         return forwardError(responseCodeRes.error());
     }
-    EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: HTTP response code = {}", responseCode);
+    EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: HTTP response code = {}", responseCode);
 
     if (responseCode >= 400) {
-        EDM_LOG_ERROR(taskId_, "MetaInfoFetcher: HTTP error {}", responseCode);
+        EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: HTTP error {}", responseCode);
         return makeStringError("HTTP error: " + std::to_string(responseCode));
     }
 
@@ -73,7 +77,7 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
         // 真实大小藏在 Content-Range 中: "bytes 0-0/1234567"
         auto contentRange = curl.getHeader("Content-Range");
         if (contentRange) {
-            EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: Content-Range = {}", *contentRange);
+            EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: Content-Range = {}", *contentRange);
             auto pos = contentRange->find('/');
             if (pos != std::string::npos) {
                 try {
@@ -89,7 +93,11 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
         if (curl.getInfo(CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &size) && size >= 0) {
             info.fileSize = static_cast<FileSize>(size);
         }
-        EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: server does not support Range, Content-Length={}", info.fileSize.value_or(-1));
+        EDM_LOG_DEBUG(
+            configure->id,
+            "MetaInfoFetcher: server does not support Range, Content-Length={}",
+            info.fileSize.value_or(-1)
+        );
     }
 
     // 获取 Content-Type
@@ -106,9 +114,14 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll() const {
     info.md5 = curl.getHeader("Content-MD5");
     if (!info.md5) info.md5 = curl.getHeader("x-cos-meta-md5"); // 腾讯云 COS 特殊头
 
-    EDM_LOG_DEBUG(taskId_, "MetaInfoFetcher: fileSize={}, supportRange={}, contentType={}, md5={}",
-                  info.fileSize.value_or(-1), info.supportRange,
-                  info.contentType.value_or("n/a"), info.md5.value_or("n/a"));
+    EDM_LOG_DEBUG(
+        configure->id,
+        "MetaInfoFetcher: fileSize={}, supportRange={}, contentType={}, md5={}",
+        info.fileSize.value_or(-1),
+        info.supportRange,
+        info.contentType.value_or("n/a"),
+        info.md5.value_or("n/a")
+    );
 
     return info;
 }

@@ -33,6 +33,11 @@ enum class Resumable {
 
 using TaskId = int;
 
+enum class AvailableThreads { k4 = 4, k8 = 8, k16 = 16, k32 = 32 };
+
+enum class ProxyType { Http, Https, Socks4, Socks4a, Socks5, Socks5h };
+
+
 inline constexpr TaskId    kInvalidTaskID      = 0;
 inline constexpr auto      kInvalidFileSize    = -1;
 inline constexpr auto      kInvalidFileName    = "unknown.dat";
@@ -44,18 +49,13 @@ inline constexpr auto      kInvalidThreadCount = 0;
 
 inline constexpr auto kRetryCount = 3;
 
-enum class AvailableThreads { k4 = 4, k8 = 8, k16 = 16, k32 = 32 };
-
-enum class ProxyType { None = 0, Http, Https, Socks4, Socks4a, Socks5, Socks5h };
-
-struct GlobalDefaults {
-    static inline constexpr auto kDefaultThreadCount    = AvailableThreads::k8;
-    static inline constexpr auto kDefaultBandwidthLimit = BandLimit{0};
-    static inline constexpr auto kDefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                                                     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0";
-    static inline constexpr auto kDefaultProxyType = ProxyType::None;
-    static inline constexpr auto kDefaultProxyHost = "127.0.0.1";
-    static inline constexpr auto kDefaultProxyPort = 1080;
-};
+inline constexpr auto kDefaultThreadCount  = AvailableThreads::k8;
+inline constexpr auto kDefaultBandLimit    = kInvalidBandLimit;
+inline constexpr auto kDefaultUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                             "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0";
+inline constexpr auto kDefaultProxyEnabled = false;
+inline constexpr auto kDefaultProxyType    = ProxyType::Http;
+inline constexpr auto kDefaultProxyHost    = "127.0.0.1";
+inline constexpr auto kDefaultProxyPort    = 1080;
 
 } // namespace edm

@@ -1,12 +1,11 @@
 #include "CurlEx.h"
 
+#include "DownloadTypes.h"
+#include "Global.h"
+
 #include "fmt/format.h"
 
 namespace edm::downloader {
-
-std::string CurlCodeError::message() const noexcept {
-    return fmt::format("Curl error {}: {}", static_cast<int>(code), curl_easy_strerror(code));
-}
 
 
 void CurlEx::cleanup() {
@@ -30,12 +29,12 @@ CurlEx::CurlEx(CurlEx&& o) noexcept
 CurlEx& CurlEx::operator=(CurlEx&& o) noexcept {
     if (this != &o) {
         cleanup();
-        curl_      = o.curl_;
-        headers_   = o.headers_;
+        curl_       = o.curl_;
+        headers_    = o.headers_;
         rawHeaders_ = std::move(o.rawHeaders_);
         status_     = std::move(o.status_);
-        o.curl_    = nullptr;
-        o.headers_ = nullptr;
+        o.curl_     = nullptr;
+        o.headers_  = nullptr;
     }
     return *this;
 }
@@ -57,7 +56,7 @@ CurlEx& CurlEx::append(std::string header) {
 Expected<> CurlEx::perform() {
     if (!status_) return forwardError(status_.error());
     if (auto code = curl_easy_perform(curl_); code != CURLE_OK) {
-        return makeError<CurlCodeError>(code);
+        return makeCurlError(code);
     }
     return {};
 }
@@ -74,5 +73,46 @@ std::optional<std::string> CurlEx::getHeader(const std::string& name) const {
     return std::nullopt;
 }
 
+Expected<downloader::CurlEx> CurlEx::fromConfigure(std::shared_ptr<TaskConfigure> const& cfg) {
+    auto curl = downloader::CurlEx{};
+
+    curl.setOpt(CURLOPT_URL, cfg->url.c_str()) // 设置地址
+        .setOpt(CURLOPT_FOLLOWLOCATION, 1L)    // 跟随重定向
+        .setOpt(CURLOPT_NOSIGNAL, 1L)
+        .setOpt(CURLOPT_FAILONERROR, 1L)
+        .setOpt(CURLOPT_NOPROXY, "localhost,127.0.0.1,::1"); // 本地回环地址忽略代理
+
+    curl.setOpt(CURLOPT_USERAGENT, cfg->userAgent.c_str()); // 设置 User-Agent
+
+    if (cfg->cookie) {
+        curl.setOpt(CURLOPT_COOKIE, cfg->cookie->c_str()); // 设置 Cookie
+    }
+
+    if (cfg->referer) {
+        curl.setOpt(CURLOPT_REFERER, cfg->referer->c_str()); // 设置 Referer
+    }
+
+    if (cfg->origin) {
+        curl.append("Origin: " + *cfg->origin);
+    }
+
+    if (cfg->proxyUrl) {
+        curl.setOpt(CURLOPT_PROXY, cfg->proxyUrl->c_str()); // 设置代理
+    }
+
+    if (cfg->bandLimit > kInvalidBandLimit) {
+        auto speedLimit = static_cast<curl_off_t>(cfg->bandLimit) * 1024; // KB/s 转换为 B/s
+        curl.setOpt(CURLOPT_MAX_RECV_SPEED_LARGE, speedLimit);            // 设置下载速度限制
+    }
+
+    if (!cfg->headers.empty()) {
+        for (auto const& header : cfg->headers) {
+            curl.append(header);
+        }
+    }
+
+    if (!curl.status()) return makeStringError(curl.status().error().message());
+    return curl;
+}
 
 } // namespace edm::downloader

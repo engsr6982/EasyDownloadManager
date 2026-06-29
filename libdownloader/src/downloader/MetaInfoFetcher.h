@@ -1,30 +1,20 @@
 #pragma once
+#include "downloader/DownloadTypes.h"
 #include "expected.h"
-#include "Global.h"
+#include <memory>
 
-#include <string>
 
 namespace edm {
 struct TaskConfigure;
-struct FetchedMetaInfo;
 } // namespace edm
 
 namespace edm ::downloader {
 
-
 class MetaInfoFetcher final {
-    std::shared_ptr<TaskConfigure> configure_;
-    TaskId                         taskId_;
-
 public:
-    MetaInfoFetcher(const MetaInfoFetcher&)            = delete;
-    MetaInfoFetcher& operator=(const MetaInfoFetcher&) = delete;
-    MetaInfoFetcher(MetaInfoFetcher&&)                 = delete;
-    MetaInfoFetcher& operator=(MetaInfoFetcher&&)      = delete;
-    explicit MetaInfoFetcher(std::shared_ptr<TaskConfigure> configure, TaskId taskId = kInvalidTaskID);
-    ~MetaInfoFetcher() = default;
+    MetaInfoFetcher() = delete;
 
-    Expected<FetchedMetaInfo> fetchAll() const;
+    static Expected<FetchedMetaInfo> fetchAll(std::shared_ptr<TaskConfigure> const& configure);
 };
 
 } // namespace edm::downloader
