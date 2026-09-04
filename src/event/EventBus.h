@@ -3,7 +3,7 @@
 
 
 namespace edm {
-struct TaskContext;
+struct TaskModel;
 
 class EventBus : public QObject {
     Q_OBJECT
@@ -32,7 +32,7 @@ signals:
      * 任务已创建
      * @param ctx 任务上下文
      */
-    void onTaskCreated(std::shared_ptr<edm::TaskContext> ctx);
+    void onTaskCreated(std::shared_ptr<edm::TaskModel> model);
 
 };
 

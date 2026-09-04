@@ -14,10 +14,9 @@ namespace edm ::downloader {
 
 
 DownloadWorker::DownloadWorker(
-    std::shared_ptr<TaskConfigure>     config,
+    std::shared_ptr<TaskContext>       config,
     std::string                        outFilePath,
-    std::shared_ptr<std::atomic<bool>> isTaskRunning,
-    TaskId                             taskId
+    std::shared_ptr<std::atomic<bool>> isTaskRunning
 )
 : config_(std::move(config)),
   outFilePath_(std::move(outFilePath)),
@@ -64,8 +63,8 @@ size_t DownloadWorker::headerCallback(char* ptr, size_t size, size_t nmemb, void
 
     // 检查响应头中是否包含 Content-Range
     std::string_view data(ptr, size * nmemb);
-    if (data.find("Content-Range:") != std::string_view::npos ||
-        data.find("content-range:") != std::string_view::npos) {
+    if (data.find("Content-Range:") != std::string_view::npos
+        || data.find("content-range:") != std::string_view::npos) {
         ctx->rangeValidated = true;
     }
     return size * nmemb;
@@ -110,7 +109,7 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
 
     // 配置 CURL
     assert(config_);
-    auto curlExRes = CurlEx::fromConfigure(config_);
+    auto curlExRes = CurlEx::fromContext(config_);
     if (!curlExRes) {
         std::fclose(fp);
         EDM_LOG_ERROR(config_->id, "downloadRange: failed to create CURL handle: {}", curlExRes.error().message());
@@ -183,7 +182,7 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
         return makeStringError("Failed to open temp file for writing: " + outFilePath_);
     }
 
-    auto curlExRes = CurlEx::fromConfigure(config_);
+    auto curlExRes = CurlEx::fromContext(config_);
     if (!curlExRes) {
         std::fclose(fp);
         EDM_LOG_ERROR(config_->id, "downloadWholeFile: failed to create CURL handle: {}", curlExRes.error().message());
@@ -207,7 +206,11 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
 
     long responseCode = 0;
     if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
-        EDM_LOG_ERROR(config_->id, "downloadWholeFile: failed to get response code: {}", responseCodeRes.error().message());
+        EDM_LOG_ERROR(
+            config_->id,
+            "downloadWholeFile: failed to get response code: {}",
+            responseCodeRes.error().message()
+        );
         return forwardError(responseCodeRes.error());
     }
     if (responseCode != 200 && responseCode != 206) {

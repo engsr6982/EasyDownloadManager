@@ -4,7 +4,9 @@
 #include "DownloadWorker.h"
 #include "FileVerifier.h"
 #include "Global.h"
+#include "ITaskObserver.h"
 #include "MetaInfoFetcher.h"
+#include "schema/ChunkMetaFile.h"
 #include "utils/TaskLogger.h"
 
 #include <algorithm>
@@ -31,6 +33,11 @@ constexpr uint32_t kProgressMagic   = 0x4D444545; // "EEDM" little-endian marker
 constexpr uint32_t kProgressVersion = 2;
 
 
+/**
+ * @brief 对文件名进行安全化处理，替换不合法字符
+ * @param value 原始文件名
+ * @return 安全化处理后的文件名，如果处理结果为空则返回无效文件名常量
+ */
 std::string sanitizeFileName(std::string value) {
     if (value.empty()) return kInvalidFileName;
     for (char& c : value) {
@@ -49,14 +56,21 @@ std::string fileNameFromUrl(std::string const& url) {
     return sanitizeFileName(cleanUrl.substr(slashPos + 1));
 }
 
+/**
+ * 从Content-Disposition头部中提取文件名
+ * @param value Content-Disposition头部的字符串值
+ * @return 包含文件名的std::optional对象，如果未找到文件名则返回std::nullopt
+ */
 std::optional<std::string> fileNameFromContentDisposition(std::string const& value) {
     static const std::regex filenameStarRe(R"(filename\*=UTF-8''([^;]+))", std::regex::icase);
     static const std::regex filenameRe(R"re(filename="?([^";]+)"?)re", std::regex::icase);
 
     std::smatch match;
+    // 首先尝试匹配RFC 5987编码的文件名
     if (std::regex_search(value, match, filenameStarRe) && match.size() > 1) {
         return sanitizeFileName(match[1].str());
     }
+    // 如果未找到编码的文件名，尝试匹配常规文件名
     if (std::regex_search(value, match, filenameRe) && match.size() > 1) {
         return sanitizeFileName(match[1].str());
     }
@@ -70,42 +84,21 @@ std::filesystem::path uniqueFinalPath(std::filesystem::path path) {
     auto stem = path.stem().string();
     auto ext  = path.extension().string();
     for (int counter = 1;; ++counter) {
-        auto candidate = dir / (stem + "(" + std::to_string(counter) + ")" + ext);
+        auto suffixWithCount = fmt::format("{}({}){}", stem, counter, ext);
+        auto candidate       = dir / suffixWithCount;
         if (!std::filesystem::exists(candidate)) return candidate;
     }
 }
 
-uint64_t fnv1a(uint64_t hash, void const* data, size_t len) {
-    auto bytes = static_cast<unsigned char const*>(data);
-    for (size_t i = 0; i < len; ++i) {
-        hash ^= bytes[i];
-        hash *= 1099511628211ULL;
-    }
-    return hash;
-}
-
-template <typename T>
-void appendBytes(std::vector<unsigned char>& out, T const& value) {
-    auto ptr = reinterpret_cast<unsigned char const*>(&value);
-    out.insert(out.end(), ptr, ptr + sizeof(T));
-}
-
-template <typename T>
-bool readValue(std::ifstream& in, T& value) {
-    in.read(reinterpret_cast<char*>(&value), sizeof(T));
-    return in.good();
-}
-
 } // namespace
 
-DownloadTask::DownloadTask(std::shared_ptr<edm::TaskConfigure> configure, StateChangedCallback onStateChanged)
+DownloadTask::DownloadTask(std::shared_ptr<edm::TaskContext> configure, ITaskObserver* observer)
 : configure_(std::move(configure)),
   state_(std::make_shared<DownloadState>()),
-  onStateChanged_(std::move(onStateChanged)),
+  observer_(observer),
   isRunningFlag_(std::make_shared<std::atomic<bool>>(false)) {
     assert(configure_);
     state_->setState(TaskState::Pending);
-    // state_->setTotalBytes(configure_->model->fileSize); // TODO: fetch fileSize from meta
     EDM_LOG_INFO(configure_->id, "DownloadTask created, url={}", configure_->url);
 }
 
@@ -127,26 +120,20 @@ DownloadTask::~DownloadTask() {
 }
 
 void DownloadTask::setState(TaskState state) {
-    EDM_LOG_DEBUG(
-        configure_->id,
-        "State transition: {} -> {}",
-        static_cast<int>(state_->state()),
-        static_cast<int>(state)
-    );
+    auto old = state_->state();
+
+    EDM_LOG_DEBUG(configure_->id, "State transition: {} -> {}", static_cast<int>(old), static_cast<int>(state));
+
     state_->setState(state);
-    notifyStateChanged();
+    configure_->state = state; // 同步到配置以持久化
+    observer_->onStateChanged(configure_, old);
 }
 
-void DownloadTask::setError(std::string message) {
+void DownloadTask::notifyError(std::string const& message) {
     EDM_LOG_ERROR(configure_->id, "Error: {}", message);
-    state_->setErrorMessage(std::move(message));
+    observer_->onError(configure_, message);
 }
 
-void DownloadTask::notifyStateChanged() const {
-    if (onStateChanged_) {
-        onStateChanged_(configure_);
-    }
-}
 
 Expected<> DownloadTask::prepareTask() {
     auto taskId = configure_->id;
@@ -157,10 +144,12 @@ Expected<> DownloadTask::prepareTask() {
 
         auto metaRes = edm::downloader::MetaInfoFetcher::fetchAll(configure_);
         if (!metaRes) {
-            EDM_LOG_ERROR(taskId, "Meta info fetch failed: {}", metaRes.error().message());
-            setError(metaRes.error().message());
+            auto err = metaRes.error().message();
+
+            EDM_LOG_ERROR(taskId, "Meta info fetch failed: {}", err);
+            notifyError(err);
             setState(TaskState::Failed);
-            return makeStringError(state_->errorMessage());
+            return makeStringError(err);
         }
         configure_->metaInfo = std::move(metaRes.value());
         EDM_LOG_INFO(
@@ -175,40 +164,39 @@ Expected<> DownloadTask::prepareTask() {
 
     auto const fileSize = meta.fileSize.value_or(kInvalidFileSize);
 
-    // if (meta.fileSize) model->fileSize = *meta.fileSize;
-    // model->resumable = meta.supportRange ? Resumable::Yes : Resumable::No;
-    // if (meta.contentType) model->mimeType = *meta.contentType;
-    // if (model->fileName == kInvalidFileName || model->fileName.empty()) {
-    //     if (meta.contentDisposition) {
-    //         model->fileName =
-    //             fileNameFromContentDisposition(*meta.contentDisposition).value_or(fileNameFromUrl(meta.finalUrl));
-    //     } else {
-    //         model->fileName = fileNameFromUrl(meta.finalUrl);
-    //     }
-    // }
-    // EDM_LOG_DEBUG(
-    //     taskId,
-    //     "Resolved fileName={}, fileSize={}, resumable={}",
-    //     model->fileName,
-    //     model->fileSize,
-    //     static_cast<int>(model->resumable)
-    // );
+    // --- 解析最终文件名 ---
+    // 优先使用 Content-Disposition (服务端返回的真实文件名)，其次回退到 URL 解析。
+    if (meta.contentDisposition) {
+        auto cdName = fileNameFromContentDisposition(*meta.contentDisposition);
+        if (cdName && *cdName != kInvalidFileName) {
+            configure_->fileName = std::move(*cdName);
+        }
+    }
+    if (configure_->fileName.empty()) {
+        configure_->fileName = fileNameFromUrl(configure_->url);
+    }
+    // 防呆：确保文件名不为空
+    if (configure_->fileName.empty() || configure_->fileName == kInvalidFileName) {
+        configure_->fileName = kInvalidFileName;
+    }
+    EDM_LOG_INFO(taskId, "Resolved filename: {}", configure_->fileName);
 
     state_->setTotalBytes(fileSize);
     std::error_code dirEc;
     std::filesystem::create_directories(configure_->saveDir, dirEc);
     if (dirEc) {
-        EDM_LOG_ERROR(taskId, "Failed to create save directory: {}", dirEc.message());
-        setError("Failed to create save directory: " + dirEc.message());
+        auto err = fmt::format("Failed to create save directory: {}", dirEc.message());
+        EDM_LOG_ERROR(taskId, err);
+        notifyError(err);
         setState(TaskState::Failed);
-        return makeStringError(state_->errorMessage());
+        return makeStringError(err);
     }
-    outFilePath_ = (std::filesystem::path(configure_->saveDir)
-                    / (sanitizeFileName(fileNameFromUrl(configure_->url)) + kTempFileExt))
-                       .string();
+    outFilePath_ =
+        (std::filesystem::path(configure_->saveDir) / (sanitizeFileName(configure_->fileName) + kTempFileExt)).string();
     metaFilePath_ = outFilePath_ + kMetaFileExt;
-    state_->setOutputPath(outFilePath_);
     EDM_LOG_DEBUG(taskId, "Output path: {}, Meta path: {}", outFilePath_, metaFilePath_);
+
+    // TODO: 文件名解析完成后立即通知宿主持久化，确保 UI/DB 中的文件名与磁盘一致。
 
     if (meta.fileSize < 0) {
         EDM_LOG_WARN(taskId, "Unknown file size, falling back to single-thread download");
@@ -235,10 +223,11 @@ Expected<> DownloadTask::prepareTask() {
     std::error_code ec;
     std::filesystem::resize_file(tmpPath, fileSize, ec); // TODO
     if (ec) {
-        EDM_LOG_ERROR(taskId, "Failed to pre-allocate disk space: {}", ec.message());
-        setError("Failed to pre-allocate disk space: " + ec.message());
+        auto err = fmt::format("Failed to pre-allocate disk space: {}", ec.message());
+        EDM_LOG_ERROR(taskId, err);
+        notifyError(err);
         setState(TaskState::Failed);
-        return makeStringError(state_->errorMessage());
+        return makeStringError(err);
     }
     EDM_LOG_DEBUG(taskId, "Pre-allocated {} bytes on disk", fileSize);
 
@@ -288,74 +277,36 @@ void DownloadTask::rebuildRanges() {
 bool DownloadTask::loadProgress() {
     auto taskId = configure_->id;
     EDM_LOG_DEBUG(taskId, "Attempting to load progress from {}", metaFilePath_);
-    std::ifstream in(metaFilePath_, std::ios::binary);
-    if (!in) {
-        EDM_LOG_DEBUG(taskId, "No existing progress file, starting fresh");
+
+    auto reader = schema::EnvelopeReader{kProgressMagic, kProgressVersion, metaFilePath_};
+
+    auto data = reader.read<schema::MetaPaylad>();
+    if (!data) {
+        EDM_LOG_ERROR(taskId, "Failed to read progress: {}", data.error().message());
         return false;
     }
 
-    // Progress metadata is deliberately binary and versioned. It is not a security boundary,
-    // but the magic/version/checksum combination prevents accidental edits from being trusted.
-    uint32_t magic            = 0;
-    uint32_t version          = 0;
-    int64_t  fileSize         = 0;
-    uint64_t rangeCount       = 0;
-    uint64_t expectedChecksum = 0;
-    if (!readValue(in, magic) || !readValue(in, version) || !readValue(in, fileSize) || !readValue(in, rangeCount)
-        || !readValue(in, expectedChecksum)) {
-        EDM_LOG_WARN(taskId, "Progress file read error (header)");
-        return false;
-    }
-    if (magic != kProgressMagic || version != kProgressVersion || fileSize != configure_->metaInfo->fileSize
-        || rangeCount == 0) {
+    // 文件大小不匹配，可能服务端下发了新的文件 URL
+    if (data->fileSize != configure_->metaInfo->fileSize) {
         EDM_LOG_WARN(
             taskId,
-            "Progress file invalid: magic={:#x}, version={}, fileSize={}, rangeCount={}",
-            magic,
-            version,
-            fileSize,
-            rangeCount
+            "Progress file invalid: fileSize={}, expected={}",
+            data->fileSize,
+            configure_->metaInfo->fileSize.value_or(-1)
         );
         return false;
     }
 
     state_->ranges.clear();
-    std::vector<unsigned char> checksumBuffer;
-    checksumBuffer.reserve(static_cast<size_t>(rangeCount) * (sizeof(int64_t) * 3 + sizeof(uint8_t)));
-
-    for (uint64_t i = 0; i < rangeCount; ++i) {
-        int64_t start      = 0;
-        int64_t end        = 0;
-        int64_t downloaded = 0;
-        uint8_t completed  = 0;
-        if (!readValue(in, start) || !readValue(in, end) || !readValue(in, downloaded) || !readValue(in, completed)) {
-            EDM_LOG_WARN(taskId, "Progress file read error at range {}", i);
-            state_->ranges.clear();
-            return false;
-        }
-        appendBytes(checksumBuffer, start);
-        appendBytes(checksumBuffer, end);
-        appendBytes(checksumBuffer, downloaded);
-        appendBytes(checksumBuffer, completed);
-
-        auto range = std::make_shared<DownloadRange>(start, end);
-        range->downloaded.store(std::clamp<int64_t>(downloaded, 0, range->size()), std::memory_order_relaxed);
-        range->completed.store(completed != 0 || range->downloaded.load() == range->size(), std::memory_order_relaxed);
-        state_->ranges.push_back(range);
+    state_->ranges.reserve(data->rangeCount);
+    for (auto const& range : data->ranges) {
+        auto r = std::make_shared<DownloadRange>(range.start, range.end);
+        r->downloaded.store(range.downloaded, std::memory_order_relaxed);
+        r->completed.store(range.completed, std::memory_order_relaxed);
+        state_->ranges.push_back(r);
     }
 
-    auto actualChecksum = fnv1a(1469598103934665603ULL, checksumBuffer.data(), checksumBuffer.size());
-    if (actualChecksum != expectedChecksum) {
-        EDM_LOG_WARN(
-            taskId,
-            "Progress file checksum mismatch (expected={:#x}, actual={:#x})",
-            expectedChecksum,
-            actualChecksum
-        );
-        state_->ranges.clear();
-        return false;
-    }
-    EDM_LOG_INFO(taskId, "Loaded progress: {} range(s) from previous session", rangeCount);
+    EDM_LOG_INFO(taskId, "Loaded progress: {} range(s) from previous session", data->rangeCount);
     return !state_->ranges.empty();
 }
 
@@ -364,37 +315,27 @@ void DownloadTask::saveProgress() const {
     auto taskId = configure_->id;
     EDM_LOG_DEBUG(taskId, "Saving progress to {}", metaFilePath_);
 
-    // Keep the record payload separate so the checksum covers exactly the mutable range data.
-    // Header fields remain readable enough for future migrations without accepting stale ranges.
-    std::vector<unsigned char> records;
-    records.reserve(state_->ranges.size() * (sizeof(int64_t) * 3 + sizeof(uint8_t)));
-    for (auto const& range : state_->ranges) {
-        auto downloaded = range->downloaded.load(std::memory_order_relaxed);
-        auto completed  = static_cast<uint8_t>(range->completed.load(std::memory_order_relaxed) ? 1 : 0);
-        appendBytes(records, range->start);
-        appendBytes(records, range->end);
-        appendBytes(records, downloaded);
-        appendBytes(records, completed);
+    {
+        auto writer = schema::EnvelopeWriter<schema::MetaPaylad>{kProgressMagic, kProgressVersion, metaFilePath_};
+
+        writer->fileSize   = configure_->metaInfo->fileSize.value();
+        writer->rangeCount = state_->ranges.size();
+
+        auto& ranges = writer->ranges;
+        ranges.reserve(state_->ranges.size());
+        for (auto const& range : state_->ranges) {
+            ranges.emplace_back(
+                range->start,
+                range->end,
+                range->downloaded.load(std::memory_order_relaxed),
+                range->completed.load(std::memory_order_relaxed)
+            );
+        }
+
+        if (auto exc = writer.flush(); !exc) {
+            EDM_LOG_ERROR(taskId, "Failed to save progress: {}", exc.error().message());
+        }
     }
-
-    std::ofstream out(metaFilePath_, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        EDM_LOG_ERROR(taskId, "Failed to open progress file for writing");
-        return;
-    }
-
-    auto magic      = kProgressMagic;
-    auto version    = kProgressVersion;
-    auto fileSize   = configure_->metaInfo->fileSize;
-    auto rangeCount = static_cast<uint64_t>(state_->ranges.size());
-    auto checksum   = fnv1a(1469598103934665603ULL, records.data(), records.size());
-
-    out.write(reinterpret_cast<char const*>(&magic), sizeof(magic));
-    out.write(reinterpret_cast<char const*>(&version), sizeof(version));
-    out.write(reinterpret_cast<char const*>(&fileSize), sizeof(fileSize));
-    out.write(reinterpret_cast<char const*>(&rangeCount), sizeof(rangeCount));
-    out.write(reinterpret_cast<char const*>(&checksum), sizeof(checksum));
-    out.write(reinterpret_cast<char const*>(records.data()), static_cast<std::streamsize>(records.size()));
 }
 
 void DownloadTask::launchWorkers() {
@@ -427,7 +368,7 @@ void DownloadTask::launchWorkers() {
 void DownloadTask::workerLoop() {
     auto taskId = configure_->id;
     EDM_LOG_DEBUG(taskId, "Worker started");
-    DownloadWorker worker(configure_, outFilePath_, isRunningFlag_, taskId);
+    DownloadWorker worker(configure_, outFilePath_, isRunningFlag_);
 
     while (isRunningFlag_->load(std::memory_order_acquire)) {
         auto idx = nextRangeIndex_.fetch_add(1, std::memory_order_relaxed);
@@ -451,7 +392,7 @@ void DownloadTask::workerLoop() {
             if (!isRunningFlag_->load(std::memory_order_acquire)) break;
             if (attempt == kRetryCount) {
                 EDM_LOG_ERROR(taskId, "Range {} failed after {} attempts: {}", idx, attempt + 1, res.error().message());
-                setError(res.error().message());
+                notifyError(res.error().message());
                 isRunningFlag_->store(false, std::memory_order_release);
             } else {
                 EDM_LOG_WARN(
@@ -493,7 +434,6 @@ Expected<> DownloadTask::start() {
         return prepared;
     }
 
-    // model->lastTry = std::time(nullptr);
     setState(TaskState::Running);
     launchWorkers();
     EDM_LOG_INFO(taskId, "Task started and workers launched");
@@ -523,15 +463,9 @@ void DownloadTask::finalizeTask() {
         return;
     }
 
-    if (!isRunningFlag_->load(std::memory_order_acquire)) {
-        setState(state_->errorMessage().empty() ? TaskState::Paused : TaskState::Failed);
-        saveProgress();
-        return;
-    }
-
     if (fileSize >= 0 && totalDownloaded < fileSize) {
         EDM_LOG_ERROR(taskId, "Download incomplete: {} < {}", totalDownloaded, fileSize);
-        setError("Download incomplete after retries");
+        notifyError("Download incomplete after retries");
         setState(TaskState::Failed);
         saveProgress();
         return;
@@ -545,37 +479,34 @@ void DownloadTask::finalizeTask() {
     );
     if (!verifyRes) {
         EDM_LOG_ERROR(taskId, "File verification failed: {}", verifyRes.error().message());
-        setError(verifyRes.error().message());
+        notifyError(verifyRes.error().message());
         setState(TaskState::Failed);
         saveProgress();
         return;
     }
     if (!verifyRes.value().ok) {
         EDM_LOG_ERROR(taskId, "File verification mismatch: {}", verifyRes.value().message);
-        setError(verifyRes.value().message);
+        notifyError(verifyRes.value().message);
         setState(TaskState::Failed);
         saveProgress();
         return;
     }
 
-    auto finalPath = uniqueFinalPath(
-        std::filesystem::path(configure_->saveDir) / sanitizeFileName(fileNameFromUrl(configure_->url))
-    );
+    auto finalName = configure_->fileName.empty() ? fileNameFromUrl(configure_->url) : configure_->fileName;
+    auto finalPath = uniqueFinalPath(std::filesystem::path(configure_->saveDir) / sanitizeFileName(finalName));
     std::error_code ec;
     std::filesystem::rename(outFilePath_, finalPath, ec);
     if (ec) {
         EDM_LOG_ERROR(taskId, "Failed to move completed file: {}", ec.message());
-        setError("Failed to move completed file: " + ec.message());
+        notifyError("Failed to move completed file: " + ec.message());
         setState(TaskState::Failed);
         saveProgress();
         return;
     }
 
     std::filesystem::remove(metaFilePath_, ec);
-    // configure_->model->fileName = finalPath.filename().string();
     currentSpeed_ = 0.0;
     state_->setSpeed(0.0);
-    state_->setOutputPath(finalPath.string());
     EDM_LOG_INFO(taskId, "Download completed: {}", finalPath.string());
     setState(TaskState::Finished);
 }
@@ -661,8 +592,8 @@ void DownloadTask::updateSpeed() {
     state_->setSpeed(currentSpeed_);
 }
 
-std::shared_ptr<edm::TaskConfigure> DownloadTask::getConfigure() const { return configure_; }
-std::shared_ptr<DownloadState>      DownloadTask::getStateObject() const { return state_; }
+std::shared_ptr<edm::TaskContext> DownloadTask::getContext() const { return configure_; }
+std::shared_ptr<DownloadState>    DownloadTask::getStateObject() const { return state_; }
 
 int64_t DownloadTask::getDownloadedBytes() const {
     int64_t total = 0;
@@ -677,12 +608,6 @@ std::vector<std::shared_ptr<DownloadRange>> DownloadTask::getRanges() const { re
 double DownloadTask::getSpeed() const {
     std::shared_lock lock{mutex_};
     return currentSpeed_;
-}
-
-std::optional<std::string> DownloadTask::getLastError() {
-    std::shared_lock lock{mutex_};
-    if (state_->errorMessage().empty()) return std::nullopt;
-    return state_->errorMessage();
 }
 
 TaskState DownloadTask::getState() const {

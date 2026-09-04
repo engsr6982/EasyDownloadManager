@@ -11,7 +11,8 @@
 
 namespace edm {
 
-struct TaskConfigure;
+struct TaskContext;
+struct ITaskObserver;
 
 namespace downloader {
 class DownloadState;
@@ -20,30 +21,31 @@ class DownloadTask;
 
 
 class Dispatcher {
-public:
-    using TaskLoader           = std::function<std::shared_ptr<TaskConfigure>(TaskId)>;
-    using TaskChangedCallback  = std::function<void(std::shared_ptr<TaskConfigure> const&)>;
-
-    struct Options {
-        TaskLoader           taskLoader;
-        TaskChangedCallback  onTaskChanged;
-    };
-
 private:
-    std::unordered_map<TaskId, std::shared_ptr<downloader::DownloadTask>> activeTasks_;
-    std::mutex                                                            tasksMutex_;
-    TaskLoader                                                            taskLoader_;
-    TaskChangedCallback                                                   onTaskChanged_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 
-    void                     persistTask(std::shared_ptr<TaskConfigure> const& ctx) const;
-    [[nodiscard]] Expected<> scheduleTask(std::shared_ptr<TaskConfigure> task);
 
 public:
-    explicit Dispatcher(Options options = {});
+    /**
+     * @param observer observer 实例生命周期必须大于 dispatcher
+     */
+    explicit Dispatcher(ITaskObserver* observer);
     ~Dispatcher();
 
+    /**
+     * 获取指定ID的下载任务状态
+     * @param id 任务ID
+     * @return 返回共享指针指向的下载状态对象，如果任务不存在则返回nullptr
+     */
     std::shared_ptr<downloader::DownloadState> getTaskState(TaskId id);
-    std::shared_ptr<TaskConfigure>             getTaskConfigure(TaskId id);
+
+    /**
+     * 获取指定ID的活动任务上下文
+     * @param id 任务ID
+     * @return 返回共享指针指向的任务上下文对象，如果任务不存在则返回nullptr
+     */
+    std::shared_ptr<TaskContext> getActiveTaskContext(TaskId id);
 
     void updateAllSpeeds();
 
@@ -53,7 +55,7 @@ public:
     Expected<> resumeTask(TaskId id);
     Expected<> cancelTask(TaskId id);
 
-    [[nodiscard]] Expected<> createTask(std::shared_ptr<TaskConfigure> configure);
+    [[nodiscard]] Expected<> createTask(std::shared_ptr<TaskContext> ctx);
 };
 
 } // namespace edm

@@ -10,7 +10,7 @@ namespace {
 size_t discardCallback(char*, size_t size, size_t nmemb, void*) { return size * nmemb; }
 } // namespace
 
-Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskConfigure> const& configure) {
+Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskContext> const& configure) {
     if (!configure) {
         EDM_LOG_ERROR(kInvalidTaskID, "MetaInfoFetcher: configure is null");
         return makeStringError("configure is null");
@@ -18,7 +18,7 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskConfigur
 
     EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: fetching meta from {}", configure->url);
 
-    auto ex_res = CurlEx::fromConfigure(configure);
+    auto ex_res = CurlEx::fromContext(configure);
     if (!ex_res) {
         EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: failed to create CURL handle: {}", ex_res.error().message());
         return forwardError(ex_res.error());

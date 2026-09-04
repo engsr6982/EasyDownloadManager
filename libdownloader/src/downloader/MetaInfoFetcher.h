@@ -5,7 +5,7 @@
 
 
 namespace edm {
-struct TaskConfigure;
+struct TaskContext;
 } // namespace edm
 
 namespace edm ::downloader {
@@ -14,7 +14,7 @@ class MetaInfoFetcher final {
 public:
     MetaInfoFetcher() = delete;
 
-    static Expected<FetchedMetaInfo> fetchAll(std::shared_ptr<TaskConfigure> const& configure);
+    static Expected<FetchedMetaInfo> fetchAll(std::shared_ptr<TaskContext> const& configure);
 };
 
 } // namespace edm::downloader

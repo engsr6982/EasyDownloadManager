@@ -1,8 +1,16 @@
 #pragma once
+
 #include <QObject>
 
 namespace edm {
 
+/**
+ * @brief Bridges EventBus signals to C++ backend actions.
+ *
+ * In the Widget era this was the primary seam between UI and engine.
+ * After migration to QML, most actions go through QmlTaskListModel directly,
+ * but this handler is kept for any code that still emits EventBus signals.
+ */
 class SignalHandler : public QObject {
     Q_OBJECT;
 

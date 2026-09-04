@@ -15,6 +15,7 @@ find_package(glaze CONFIG REQUIRED)
 set(LIBDOWNLOADER_SOURCES
         src/Dispatcher.cc
         src/Dispatcher.h
+        src/ITaskObserver.h
         src/Global.h
         src/expected.h
         src/utils/TaskLogger.h

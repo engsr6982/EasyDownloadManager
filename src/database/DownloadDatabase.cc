@@ -1,7 +1,7 @@
 #include "DownloadDatabase.h"
 
 #include "EdmConfig.h"
-#include "model/TaskModel.h"
+#include "TaskModel.h"
 
 #include <random>
 
@@ -33,7 +33,6 @@ void DownloadDatabase::initTables() const {
                     state INTEGER NOT NULL,          -- TaskState 枚举
                     bandLimit INTEGER NOT NULL,
                     threadCount INTEGER NOT NULL,
-                    retryCount INTEGER NOT NULL DEFAULT 3,
                     firstTry INTEGER NOT NULL,       -- int64 时间戳
                     lastTry INTEGER NOT NULL,        -- int64 时间戳
                     userAgent TEXT NOT NULL,
@@ -47,12 +46,6 @@ void DownloadDatabase::initTables() const {
             )"
         );
         query.exec();
-    }
-
-    try {
-        db_->exec("ALTER TABLE downloads ADD COLUMN retryCount INTEGER NOT NULL DEFAULT 3;");
-    } catch (SQLite::Exception const&) {
-        // 已存在旧库字段时忽略。
     }
 
     // headers 表
@@ -87,7 +80,6 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
                 state,
                 bandLimit,
                 threadCount,
-                retryCount,
                 firstTry,
                 lastTry,
                 userAgent,
@@ -97,7 +89,7 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
                 mimeType,
                 errorMsg,
                 saveDir
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         )"
     );
 
@@ -115,7 +107,6 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
     query.bind(idx++, static_cast<int>(task->state));
     query.bind(idx++, task->bandLimit);
     query.bind(idx++, task->threadCount);
-    query.bind(idx++, task->retryCount);
     query.bind(idx++, task->firstTry);
     query.bind(idx++, task->lastTry);
     query.bind(idx++, task->userAgent);
@@ -170,7 +161,6 @@ std::shared_ptr<TaskModel> DownloadDatabase::getTaskById(int id) const {
                 state,
                 bandLimit,
                 threadCount,
-                retryCount,
                 firstTry,
                 lastTry,
                 userAgent,
@@ -202,7 +192,6 @@ std::shared_ptr<TaskModel> DownloadDatabase::getTaskById(int id) const {
     task->state       = static_cast<TaskState>(query.getColumn(idx++).getInt());
     task->bandLimit   = query.getColumn(idx++).getInt();
     task->threadCount = query.getColumn(idx++).getInt();
-    task->retryCount  = query.getColumn(idx++).getInt();
     task->firstTry    = query.getColumn(idx++).getInt64();
     task->lastTry     = query.getColumn(idx++).getInt64();
     task->userAgent   = query.getColumn(idx++).getString();
@@ -260,7 +249,6 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
                 state,
                 bandLimit,
                 threadCount,
-                retryCount,
                 firstTry,
                 lastTry,
                 userAgent,
@@ -271,6 +259,7 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
                 errorMsg,
                 saveDir
             FROM downloads
+            ORDER BY lastTry DESC
         )"
     );
 
@@ -287,7 +276,6 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
         task->state       = static_cast<TaskState>(query.getColumn(idx++).getInt());
         task->bandLimit   = query.getColumn(idx++).getInt();
         task->threadCount = query.getColumn(idx++).getInt();
-        task->retryCount  = query.getColumn(idx++).getInt();
         task->firstTry    = query.getColumn(idx++).getInt64();
         task->lastTry     = query.getColumn(idx++).getInt64();
         task->userAgent   = query.getColumn(idx++).getString();
@@ -302,6 +290,92 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
         if (!callback(task)) {
             break;
         }
+    }
+}
+
+int DownloadDatabase::getTaskCount() const {
+    std::lock_guard   lock(mutex_);
+    SQLite::Statement query(*db_, "SELECT COUNT(*) FROM downloads");
+    if (query.executeStep()) {
+        return query.getColumn(0).getInt();
+    }
+    return 0;
+}
+
+std::vector<std::shared_ptr<TaskModel>> DownloadDatabase::getTasksRange(int offset, int limit) const {
+    std::lock_guard   lock(mutex_);
+    SQLite::Statement query(
+        *db_,
+        R"(
+            SELECT
+                id,
+                url,
+                fileName,
+                fileSize,
+                category,
+                state,
+                bandLimit,
+                threadCount,
+                firstTry,
+                lastTry,
+                userAgent,
+                resumable,
+                pageUrl,
+                pageTitle,
+                mimeType,
+                errorMsg,
+                saveDir
+            FROM downloads
+            ORDER BY lastTry DESC
+            LIMIT ? OFFSET ?
+        )"
+    );
+
+    query.bind(1, limit);
+    query.bind(2, offset);
+
+    std::vector<std::shared_ptr<TaskModel>> result;
+    int                                     idx{0};
+    while (query.executeStep()) {
+        auto task = TaskModel::make();
+
+        idx               = 0;
+        task->id          = query.getColumn(idx++).getInt();
+        task->url         = query.getColumn(idx++).getString();
+        task->fileName    = query.getColumn(idx++).getString();
+        task->fileSize    = query.getColumn(idx++).getInt64();
+        task->category    = static_cast<Category>(query.getColumn(idx++).getInt());
+        task->state       = static_cast<TaskState>(query.getColumn(idx++).getInt());
+        task->bandLimit   = query.getColumn(idx++).getInt();
+        task->threadCount = query.getColumn(idx++).getInt();
+        task->firstTry    = query.getColumn(idx++).getInt64();
+        task->lastTry     = query.getColumn(idx++).getInt64();
+        task->userAgent   = query.getColumn(idx++).getString();
+        task->resumable   = static_cast<Resumable>(query.getColumn(idx++).getInt());
+        task->pageUrl     = query.getColumn(idx++).getString();
+        task->pageTitle   = query.getColumn(idx++).getString();
+        task->mimeType    = query.getColumn(idx++).getString();
+        task->errorMsg    = query.getColumn(idx++).getString();
+        task->saveDir     = query.getColumn(idx++).getString();
+
+        result.push_back(std::move(task));
+    }
+    return result;
+}
+
+bool DownloadDatabase::deleteTask(int id) {
+    std::lock_guard lock(mutex_);
+
+    // 先删除 headers（外键关联），再删除 downloads
+    {
+        SQLite::Statement query(*db_, "DELETE FROM headers WHERE id=?");
+        query.bind(1, id);
+        query.exec();
+    }
+    {
+        SQLite::Statement query(*db_, "DELETE FROM downloads WHERE id=?");
+        query.bind(1, id);
+        return query.exec() > 0; // exec() returns the number of rows modified
     }
 }
 

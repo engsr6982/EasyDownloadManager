@@ -24,7 +24,7 @@ struct FetchedMetaInfo {
     std::optional<std::string> md5;                 // 文件完整性校验 MD5 (Content-MD5 或 x-cos-meta-md5)
 };
 
-struct TaskConfigure {
+struct TaskContext {
     TaskId const               id{kInvalidTaskID};           // 任务唯一标识符
     std::string const          url;                          // 要下载的文件地址
     std::string const          saveDir;                      // 文件保存目录
@@ -39,13 +39,20 @@ struct TaskConfigure {
 
     std::optional<FetchedMetaInfo> metaInfo; // 下载前获取到的文件元信息
 
-    explicit TaskConfigure(TaskId const id, std::string url, std::string saveDir)
+    /// 解析后的最终文件名（来自 Content-Disposition 或 URL）。
+    /// 由 DownloadTask::prepareTask() 在获取 meta 之后填入，供引擎写盘和 UI 持久化使用。
+    std::string fileName;
+
+    /// 当前任务状态，由 DownloadTask::setState() 实时更新，供 onTaskChanged 持久化到 DB。
+    TaskState state{TaskState::Pending};
+
+    explicit TaskContext(TaskId const id, std::string url, std::string saveDir)
     : id(id),
       url(std::move(url)),
       saveDir(std::move(saveDir)) {}
 };
 
-using SharedTaskConfigure = std::shared_ptr<TaskConfigure>;
+using SharedTaskContext = std::shared_ptr<TaskContext>;
 
 namespace downloader {
 
@@ -69,10 +76,6 @@ class DownloadState {
     std::atomic<int64_t>   totalBytes_{kInvalidFileSize};
     std::atomic<double>    speedBytesPerSecond_{0.0};
 
-    mutable std::shared_mutex stringsMutex_;
-    std::string               errorMessage_;
-    std::string               outputPath_;
-
 public:
     std::vector<std::shared_ptr<DownloadRange>> ranges;
 
@@ -91,24 +94,6 @@ public:
         speedBytesPerSecond_.store(bytesPerSecond, std::memory_order_relaxed);
     }
     [[nodiscard]] double speed() const noexcept { return speedBytesPerSecond_.load(std::memory_order_relaxed); }
-
-    void setErrorMessage(std::string message) {
-        std::unique_lock lock(stringsMutex_);
-        errorMessage_ = std::move(message);
-    }
-    [[nodiscard]] std::string errorMessage() const {
-        std::shared_lock lock(stringsMutex_);
-        return errorMessage_;
-    }
-
-    void setOutputPath(std::string path) {
-        std::unique_lock lock(stringsMutex_);
-        outputPath_ = std::move(path);
-    }
-    [[nodiscard]] std::string outputPath() const {
-        std::shared_lock lock(stringsMutex_);
-        return outputPath_;
-    }
 };
 
 } // namespace downloader

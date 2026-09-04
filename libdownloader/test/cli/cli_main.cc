@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) try {
     static edm::TaskId alloc = 0;
     auto               id    = ++alloc;
 
-    auto configure = std::make_shared<edm::TaskConfigure>(id, url, outputDir);
+    auto configure = std::make_shared<edm::TaskContext>(id, url, outputDir);
 
     configure->threads = (edm::AvailableThreads)threads;
 
@@ -96,12 +96,12 @@ int main(int argc, char* argv[]) try {
 
     edm::TaskLoggerManager::init();
 
-    std::shared_ptr<edm::TaskConfigure> latestModel;
-    edm::Dispatcher                     dispatcher({
-                            .taskLoader = [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskConfigure> {
+    std::shared_ptr<edm::TaskContext> latestModel;
+    edm::Dispatcher                   dispatcher({
+        .taskLoader = [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskContext> {
             return latestModel && latestModel->id == id ? latestModel : nullptr;
         },
-                            .onTaskChanged = [&latestModel](std::shared_ptr<edm::TaskConfigure> const& ctx) { latestModel = ctx; },
+        .onTaskChanged = [&latestModel](std::shared_ptr<edm::TaskContext> const& ctx) { latestModel = ctx; },
 
     });
 

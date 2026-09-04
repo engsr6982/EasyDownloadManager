@@ -10,7 +10,7 @@
 #include <fmt/format.h>
 
 namespace edm {
-struct TaskConfigure;
+struct TaskContext;
 }
 
 namespace edm::downloader {
@@ -99,7 +99,7 @@ public:
      */
     std::optional<std::string> getHeader(const std::string& name) const;
 
-    static Expected<downloader::CurlEx> fromConfigure(std::shared_ptr<TaskConfigure> const& cfg);
+    static Expected<downloader::CurlEx> fromContext(std::shared_ptr<TaskContext> const& cfg);
 };
 
 } // namespace edm::downloader

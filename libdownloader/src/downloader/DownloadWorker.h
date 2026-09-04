@@ -7,7 +7,7 @@
 #include <string>
 
 namespace edm {
-struct TaskConfigure;
+struct TaskContext;
 }
 
 namespace edm ::downloader {
@@ -15,16 +15,15 @@ namespace edm ::downloader {
 struct DownloadRange;
 
 class DownloadWorker final {
-    std::shared_ptr<TaskConfigure>     config_;
+    std::shared_ptr<TaskContext>       config_;
     std::string                        outFilePath_;
     std::shared_ptr<std::atomic<bool>> isTaskRunning_; // 用于接收上层的暂停/取消指令
 
 public:
     DownloadWorker(
-        std::shared_ptr<TaskConfigure>     config,
+        std::shared_ptr<TaskContext>       config,
         std::string                        outFilePath,
-        std::shared_ptr<std::atomic<bool>> isTaskRunning,
-        TaskId                             taskId = kInvalidTaskID
+        std::shared_ptr<std::atomic<bool>> isTaskRunning
     );
     ~DownloadWorker();
 

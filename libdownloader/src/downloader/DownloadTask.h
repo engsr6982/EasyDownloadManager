@@ -12,7 +12,8 @@
 
 namespace edm {
 enum class TaskState;
-struct TaskConfigure;
+struct TaskContext;
+struct ITaskObserver;
 } // namespace edm
 
 namespace edm::downloader {
@@ -21,13 +22,10 @@ class DownloadState;
 struct DownloadRange;
 
 class DownloadTask final : public std::enable_shared_from_this<DownloadTask> {
-public:
-    using StateChangedCallback = std::function<void(std::shared_ptr<edm::TaskConfigure> const&)>;
-
 private:
-    std::shared_ptr<TaskConfigure>     configure_{nullptr};
+    std::shared_ptr<TaskContext>       configure_{nullptr};
     std::shared_ptr<DownloadState>     state_{nullptr};
-    StateChangedCallback               onStateChanged_;
+    ITaskObserver*                     observer_{nullptr};
     mutable std::shared_mutex          mutex_;
     std::string                        outFilePath_;
     std::string                        metaFilePath_;
@@ -49,8 +47,7 @@ private:
     void                     joinWorkers();
     void                     finalizeTask();
     void                     setState(TaskState state);
-    void                     setError(std::string message);
-    void                     notifyStateChanged() const;
+    void                     notifyError(std::string const& message);
 
 public:
     DownloadTask(const DownloadTask&)            = delete;
@@ -58,7 +55,7 @@ public:
     DownloadTask(DownloadTask&&)                 = delete;
     DownloadTask& operator=(DownloadTask&&)      = delete;
 
-    explicit DownloadTask(std::shared_ptr<edm::TaskConfigure> configure, StateChangedCallback onStateChanged = {});
+    explicit DownloadTask(std::shared_ptr<edm::TaskContext> configure, ITaskObserver* observer);
     ~DownloadTask();
 
     [[nodiscard]] Expected<> start();
@@ -75,11 +72,10 @@ public:
     [[nodiscard]] double getSpeed() const;
     void                 updateSpeed();
 
-    [[nodiscard]] std::shared_ptr<edm::TaskConfigure>         getConfigure() const;
+    [[nodiscard]] std::shared_ptr<edm::TaskContext>           getContext() const;
     [[nodiscard]] std::shared_ptr<DownloadState>              getStateObject() const;
     [[nodiscard]] int64_t                                     getDownloadedBytes() const;
     [[nodiscard]] std::vector<std::shared_ptr<DownloadRange>> getRanges() const;
-    [[nodiscard]] std::optional<std::string>                  getLastError();
     [[nodiscard]] TaskState                                   getState() const;
 };
 

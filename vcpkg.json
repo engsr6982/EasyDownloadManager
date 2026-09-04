@@ -6,8 +6,8 @@
     "magic-enum",
     "sqlitecpp",
     "fmt",
-    "expected-lite",
     "spdlog",
+    "glaze",
     {
       "name": "curl",
       "default-features": false,
@@ -25,18 +25,6 @@
     {
       "name": "sqlitecpp",
       "version-string": "3.3.3"
-    },
-    {
-      "name": "fmt",
-      "version-string": "12.1.0"
-    },
-    {
-      "name": "spdlog",
-      "version-string": "1.17.0"
-    },
-    {
-      "name": "expected-lite",
-      "version-string": "0.10.0"
     }
   ]
 }

@@ -1,0 +1,18 @@
+singleton Constants 1.0 Constants.qml
+FluSwitch 1.0 fluent/FluSwitch.qml
+FluComboBox 1.0 fluent/FluComboBox.qml
+FluSettingRow 1.0 fluent/FluSettingRow.qml
+FluSettingExpander 1.0 fluent/FluSettingExpander.qml
+FluSettingGroup 1.0 fluent/FluSettingGroup.qml
+FluButton 1.0 fluent/FluButton.qml
+FluTextField 1.0 fluent/FluTextField.qml
+FluText 1.0 fluent/FluText.qml
+FluProgressBar 1.0 fluent/FluProgressBar.qml
+FluIconButton 1.0 fluent/FluIconButton.qml
+FluPopup 1.0 fluent/FluPopup.qml
+FluTextArea 1.0 fluent/FluTextArea.qml
+FluIndicator 1.0 fluent/FluIndicator.qml
+FluMenu 1.0 fluent/FluMenu.qml
+FluMenuItem 1.0 fluent/FluMenuItem.qml
+FluMenuSeparator 1.0 fluent/FluMenuSeparator.qml
+FluCheckBox 1.0 fluent/FluCheckBox.qml

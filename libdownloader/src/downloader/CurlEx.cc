@@ -73,7 +73,7 @@ std::optional<std::string> CurlEx::getHeader(const std::string& name) const {
     return std::nullopt;
 }
 
-Expected<downloader::CurlEx> CurlEx::fromConfigure(std::shared_ptr<TaskConfigure> const& cfg) {
+Expected<downloader::CurlEx> CurlEx::fromContext(std::shared_ptr<TaskContext> const& cfg) {
     auto curl = downloader::CurlEx{};
 
     curl.setOpt(CURLOPT_URL, cfg->url.c_str()) // 设置地址

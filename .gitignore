@@ -89,3 +89,5 @@ node_modules
 *.log
 .vscode
 .temp
+.cache
+!/Assets.rc
