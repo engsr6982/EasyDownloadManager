@@ -124,7 +124,7 @@ struct EdmApplication::Impl {
             }
         });
 
-        QUrl const url(u"qrc:/qt/qml/edm/qml/ui/EasyDownloadManagerUI/Src/App.qml"_qs);
+        QUrl const url(u"qrc:/qt/qml/edm/qml/ui/src-ui/Src/App.qml"_qs);
         qmlEngine_->load(url);
 
         // Get root window for tray icon interaction

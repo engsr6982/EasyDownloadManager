@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-A Qt6/C++23 download manager. Two build targets share one repo:
+A Qt6/C++23 download manager. One top-level CMake defines three build targets:
 
-- **`libdownloader`** (`libdownloader/`) — Qt-free static library containing all download engine logic (curl, segmented multi-range downloads, resume, persistence). Namespaces `edm` and `edm::downloader`. Can be built standalone.
-- **`EasyDownloadManager`** (`src/`) — Qt6 application (QML UI with a thin Widgets shim) that links `libdownloader`. Owns the dispatcher, database, config, tray icon, and QML bridge layer.
+- **`src-downloader`** (`src-downloader/`) — Qt-free static library containing all download engine logic (curl, segmented multi-range downloads, resume, persistence). Namespaces `edm` and `edm::downloader`.
+- **`src-downloader-cli`** (`test/cli/cli_main.cc`) — manual CLI harness that runs a single download through the engine. Built by default.
+- **`EasyDownloadManager`** (`src/`) — Qt6 application (QML UI with a thin Widgets shim) that links `src-downloader`. Owns the dispatcher, database, config, tray icon, and QML bridge layer.
 
-`EasyDownloadManagerUI` is a symlink to a **separate sibling repository** (`../EasyDownloadManagerUI`) — a Qt Design Studio QML project. QML source files live there and are pulled in by `qt_add_qml_module` in the build. It is not part of the CMake build here; do not assume it shares this repo's history.
+`src-ui/` holds the QML UI sources (Qt Design Studio project) and is pulled in by `qt_add_qml_module` in the build. `test/` holds the manual CLI harness and a small Node HTTP test server.
 
-Dependencies are managed with **vcpkg manifest mode** (`vcpkg.json` at root for the GUI, `libdownloader/vcpkg.json` for standalone lib builds): curl (http2+ssl), SQLiteCpp, fmt, spdlog, glaze, magic-enum. Qt6 (Widgets + Quick + QuickControls2 + QuickLayouts + QuickDialogs2) is supplied via `CMAKE_PREFIX_PATH`, not vcpkg.
+Dependencies are managed with a single **vcpkg manifest** (`vcpkg.json` at the repo root): curl (http2+ssl), SQLiteCpp, fmt, spdlog, glaze, magic-enum. Qt6 (Widgets + Quick + QuickControls2 + QuickLayouts + QuickDialogs2) is supplied via `CMAKE_PREFIX_PATH`, not vcpkg.
 
 ## Build & configure
 
@@ -20,25 +21,24 @@ CMake, C++23, MSVC on Windows. `.vscode/settings.json` pins the toolchain — mi
 ```
 cmake -B build \
   -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
-  -DCMAKE_PREFIX_PATH=<Qt>/6.8.3/msvc2022_64 \
-  -DLIBDOWNLOADER_BUILD_TESTS=Y          # builds libdownloader_cli (off by default when libdownloader is a subdirectory)
+  -DCMAKE_PREFIX_PATH=<Qt>/6.8.3/msvc2022_64
 ```
 
-The MSVC runtime is forced to the **DLL** debug/release variant (`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`) on both targets — vcpkg binaries must match.
+The MSVC runtime is forced to the **DLL** debug/release variant (`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`) on all targets — vcpkg binaries must match.
 
-`WIN32_EXECUTABLE` is `FALSE` so `qDebug` output is visible in a console. `EDM_DEBUG` is defined in Debug builds. `SPDLOG_FMT_EXTERNAL`, `CURL_STATICLIB`, and `NOMINMAX` are defined on the lib target.
+`WIN32_EXECUTABLE` is `FALSE` so `qDebug` output is visible in a console. `EDM_DEBUG` is defined in Debug builds. `SPDLOG_FMT_EXTERNAL`, `CURL_STATICLIB`, and `NOMINMAX` are defined on the `src-downloader` target.
 
 ## Running tests / CLI
 
-There is no unit-test framework. The only executable target is **`libdownloader_cli`** (`libdownloader/test/cli/cli_main.cc`), a manual harness that runs a single download via the `Dispatcher` and prints `task_state=`/`downloaded_bytes=`/etc. The VS Code launch config runs it against `http://127.0.0.1:3187/file`.
+There is no unit-test framework. The only executable target is **`src-downloader-cli`** (`test/cli/cli_main.cc`), a manual harness that runs a single download via the `Dispatcher` and prints `task_state=`/`downloaded_bytes=`/etc. It is exercised against `http://127.0.0.1:3187/file`, served by the Node server in `test/server/` (`node test/server/server.js`).
 
 ```
-libdownloader_cli --url <url> --output-dir <dir> [--threads N] [--retry N] [--timeout-seconds N] [--user-agent X] [--proxy url]
+src-downloader-cli --url <url> --output-dir <dir> [--threads N] [--retry N] [--timeout-seconds N] [--user-agent X] [--proxy url]
 ```
 
 ## Architecture
 
-### Download engine (`libdownloader`)
+### Download engine (`src-downloader`)
 
 Layered, callback-driven, thread-per-range:
 
@@ -87,8 +87,8 @@ Worker progress → `DownloadTask::saveProgress()` → `.meta` sidecar. Dispatch
 - C++23. Format with the repo `.clang-format` (LLVM-based, 4-space access offset, block-indent open brackets). clangd reads `compile_commands.json` from `build/` — generate it (`CMAKE_EXPORT_COMPILE_COMMANDS`) for IDE support.
 - `.clang-tidy` is configured (bugprone/cert/modernize/performance checks); don't introduce new warnings.
 - Comments and identifiers are largely in **Chinese** (struct field comments, README). Match the surrounding file's language when editing.
-- Error handling is `Expected`-based throughout `libdownloader`; never let exceptions cross into the engine.
-- Keep `libdownloader` Qt-free: new engine code goes in `libdownloader/src/` and must not include `Q*` headers.
+- Error handling is `Expected`-based throughout the engine (`src-downloader`); never let exceptions cross into the engine.
+- Keep `src-downloader` Qt-free: new engine code goes in `src-downloader/` and must not include `Q*` headers.
 - Bridge objects (`Qml*`) live in `src/qml/` and may use Qt freely. They are registered as QML singletons in `EdmApplication::initApp()`.
-- QML sources live in the sibling `EasyDownloadManagerUI` repo; do not edit QML files in `build/` — they are copied artifacts.
-- The QML style is "Basic" (`QQuickStyle::setStyle("Basic")`). Custom FluentUI components are in `EasyDownloadManagerUI/Src/fluent/`.
+- QML sources live in `src-ui/`; do not edit QML files in `build/` — they are copied artifacts.
+- The QML style is "Basic" (`QQuickStyle::setStyle("Basic")`). Custom FluentUI components are in `src-ui/Src/fluent/`.

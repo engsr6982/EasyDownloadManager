@@ -1,18 +1,18 @@
 #include "Dispatcher.h"
 #include "Global.h"
+#include "ITaskObserver.h"
 #include "downloader/DownloadTypes.h"
 #include "utils/TaskLogger.h"
 
 #include <chrono>
 #include <cstdlib>
-#include <ctime>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -59,6 +59,25 @@ bool isTerminal(edm::TaskState state) {
     return state == edm::TaskState::Finished || state == edm::TaskState::Failed || state == edm::TaskState::Canceled;
 }
 
+// Dispatcher 通过 ITaskObserver 上报任务事件;CLI 由轮询打印最终状态,此处仅记录异步错误。
+struct CliObserver final : edm::ITaskObserver {
+    void onStateChanged(std::shared_ptr<edm::TaskContext>& /*ctx*/, edm::TaskState /*oldState*/) override {}
+    void onError(std::shared_ptr<edm::TaskContext>& /*ctx*/, std::string const& error) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        lastError_ = error;
+    }
+    void onFileNameChanged(std::shared_ptr<edm::TaskContext>& /*ctx*/) override {}
+
+    std::string snapshotError() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return lastError_;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::string        lastError_;
+};
+
 } // namespace
 
 int main(int argc, char* argv[]) try {
@@ -96,14 +115,8 @@ int main(int argc, char* argv[]) try {
 
     edm::TaskLoggerManager::init();
 
-    std::shared_ptr<edm::TaskContext> latestModel;
-    edm::Dispatcher                   dispatcher({
-        .taskLoader = [&latestModel](edm::TaskId id) -> std::shared_ptr<edm::TaskContext> {
-            return latestModel && latestModel->id == id ? latestModel : nullptr;
-        },
-        .onTaskChanged = [&latestModel](std::shared_ptr<edm::TaskContext> const& ctx) { latestModel = ctx; },
-
-    });
+    CliObserver                   observer;
+    edm::Dispatcher               dispatcher(&observer);
 
     auto created = dispatcher.createTask(configure);
     if (!created) {
@@ -126,13 +139,15 @@ int main(int argc, char* argv[]) try {
             std::cout << "task_id=" << id << '\n';
             std::cout << "downloaded_bytes=" << state->downloadedBytes() << '\n';
             std::cout << "total_bytes=" << state->totalBytes() << '\n';
-            std::cout << "output_path=" << state->outputPath() << '\n';
+            if (auto ctx = dispatcher.getActiveTaskContext(id); ctx) {
+                std::cout << "output_path=" << (std::filesystem::path(ctx->saveDir) / ctx->fileName).string() << '\n';
+            }
             if (finalState == edm::TaskState::Finished) {
                 std::cout << "task_state=Finished\n";
                 return EXIT_SUCCESS;
             }
             std::cerr << "task_state=Failed\n";
-            std::cerr << "error_message=" << state->errorMessage() << '\n';
+            std::cerr << "error_message=" << observer.snapshotError() << '\n';
             return EXIT_FAILURE;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

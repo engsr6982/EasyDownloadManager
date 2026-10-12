@@ -16,15 +16,5 @@
         "ssl"
       ]
     }
-  ],
-  "overrides": [
-    {
-      "name": "magic-enum",
-      "version-string": "0.9.7"
-    },
-    {
-      "name": "sqlitecpp",
-      "version-string": "3.3.3"
-    }
   ]
 }

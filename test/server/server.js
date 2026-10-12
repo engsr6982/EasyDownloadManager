@@ -5,7 +5,7 @@ const app = express();
 const port = Number(process.env.PORT || 3187);
 
 const size = Number(process.env.TEST_FILE_SIZE || 1073741824);
-const fileName = process.env.TEST_FILE_NAME || "libdownloader-test.bin";
+const fileName = process.env.TEST_FILE_NAME || "src-downloader-test.bin";
 const etag = `"mock-etag-1gb"`;
 
 // ═══════════════════════════════════════════════════════════════════════

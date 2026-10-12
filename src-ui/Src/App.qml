@@ -102,7 +102,7 @@ Window {
         // 侧边栏
         Rectangle {
             id: sidebar
-            width: 180
+            width: 160
             height: parent.height
             color: Constants.sidebar
 

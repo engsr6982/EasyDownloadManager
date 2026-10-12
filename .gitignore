@@ -91,3 +91,6 @@ node_modules
 .temp
 .cache
 !/Assets.rc
+.qtcreator/
+/node_modules/
+cmake-build-*/
