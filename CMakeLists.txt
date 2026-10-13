@@ -48,6 +48,8 @@ set(PROJECT_SOURCES
         src/main.cpp
         src/utils/TimeUtils.h
         Assets.qrc
+        src/FramelessShadowFilter.cc
+        src/FramelessShadowFilter.h
 )
 
 if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Assets.rc")
@@ -137,6 +139,12 @@ target_link_libraries(EasyDownloadManager PRIVATE
         magic_enum::magic_enum
         SQLiteCpp
 )
+
+if (MSVC)
+    target_link_libraries(EasyDownloadManager PRIVATE
+            dwmapi
+    )
+endif()
 
 # --- 平台特定设置 ---
 set_target_properties(EasyDownloadManager PROPERTIES

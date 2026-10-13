@@ -1,18 +1,21 @@
 #include "EdmApplication.h"
 
 #include <QApplication>
-#include <QSurfaceFormat>
 #include <QQuickStyle>
+#include <QSurfaceFormat>
+
+
+namespace {}
 
 int main(int argc, char* argv[]) {
     QQuickStyle::setStyle("Basic");
     QApplication qtApp(argc, argv);
 
     auto& application = edm::EdmApplication::getInstance();
-    application.initApp();
+    application.initialize();
 
     int code = QApplication::exec();
 
-    application.destroyApp();
+    application.shutdown();
     return code;
 }

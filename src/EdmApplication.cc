@@ -2,6 +2,7 @@
 
 #include "Dispatcher.h"
 #include "EdmConfig.h"
+#include "FramelessShadowFilter.h"
 #include "ITaskObserver.h"
 #include "database/DownloadDatabase.h"
 #include "database/TaskModel.h"
@@ -9,13 +10,9 @@
 #include "qml/QmlController.h"
 #include "qml/QmlSettings.h"
 #include "qml/QmlTaskListModel.h"
-#include "utils/Utils.h"
-
-#include <ctime>
 
 #include <QApplication>
 #include <QDir>
-#include <QIcon>
 #include <QMenu>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -23,8 +20,10 @@
 #include <QSystemTrayIcon>
 #include <QUrl>
 
-#include <qqml.h>
-#include <winsock2.h>
+#ifdef Q_OS_WIN
+#include <dwmapi.h>
+#include <windows.h>
+#endif
 
 namespace edm {
 
@@ -35,7 +34,7 @@ public:
         // TODO: Implement this pure virtual method.
     }
 
-    void onError(std::shared_ptr<TaskContext>& ctx, const std::string& error) override {
+    void onError(std::shared_ptr<TaskContext>& ctx, std::string const& error) override {
         // TODO: Implement this pure virtual method.
     }
 
@@ -59,7 +58,10 @@ struct EdmApplication::Impl {
 
     QQuickWindow* mainWindow_{nullptr};
 
-    void init() {
+    FramelessShadowFilter shadowFilter_;
+    bool                  shadowFilterInstalled_{false};
+
+    void initiailze() {
         // 1. Database
         database_ = std::make_unique<DownloadDatabase>();
 
@@ -92,6 +94,54 @@ struct EdmApplication::Impl {
         dispatcher_ = std::make_unique<Dispatcher>(taskObserver_.get());
 
         // 3. QML engine
+        _initializeQml();
+
+        // 8. System tray icon
+        _initSystemTrayIcon();
+    }
+
+    void _installWindowsShadow() {
+#ifdef Q_OS_WIN
+        if (!mainWindow_) return;
+
+        // 确保主窗口具有原生 HWND。
+        HWND hwnd = reinterpret_cast<HWND>(mainWindow_->winId());
+
+        // 只安装一次；过滤器与 Impl 同生命周期。
+        shadowFilter_.setWindow(hwnd);
+
+        if (!shadowFilterInstalled_) {
+            qApp->installNativeEventFilter(&shadowFilter_);
+            shadowFilterInstalled_ = true;
+        }
+
+        // 保留 Qt 已有的窗口样式，只添加可提供原生框架的样式。
+        LONG_PTR style  = GetWindowLongPtr(hwnd, GWL_STYLE);
+        style          |= WS_THICKFRAME;
+        SetWindowLongPtr(hwnd, GWL_STYLE, style);
+
+        // 扩展 DWM 框架到客户区。
+        const MARGINS margins{1, 1, 1, 1};
+        const HRESULT hr = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+        if (FAILED(hr)) {
+            qWarning() << "DwmExtendFrameIntoClientArea failed:" << Qt::hex << static_cast<quint32>(hr);
+        }
+
+        // 通知 Windows 重新计算窗口框架。
+        SetWindowPos(
+            hwnd,
+            nullptr,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        );
+#endif
+    }
+
+    void _initializeQml() {
         qmlEngine_ = std::make_unique<QQmlApplicationEngine>();
 
         // Register singletons so QML can access them via their type names.
@@ -115,11 +165,11 @@ struct EdmApplication::Impl {
             qmlEngine_.get(),
             &QQmlApplicationEngine::objectCreationFailed,
             QCoreApplication::instance(),
-            [](const QUrl& url) { qCritical() << "[ERROR] Object creation failed: " << url; },
+            [](QUrl const& url) { qCritical() << "[ERROR] Object creation failed: " << url; },
             Qt::QueuedConnection
         );
-        QObject::connect(qmlEngine_.get(), &QQmlApplicationEngine::warnings, [](const QList<QQmlError>& warnings) {
-            for (const auto& error : warnings) {
+        QObject::connect(qmlEngine_.get(), &QQmlApplicationEngine::warnings, [](QList<QQmlError> const& warnings) {
+            for (auto const& error : warnings) {
                 qCritical() << "[WARN] " << error.toString();
             }
         });
@@ -131,7 +181,10 @@ struct EdmApplication::Impl {
         auto roots = qmlEngine_->rootObjects();
         if (!roots.isEmpty()) {
             mainWindow_ = qobject_cast<QQuickWindow*>(roots.first());
-            mainWindow_->setIcon(QIcon(":/assets/icons/logo.ico"));
+            if (mainWindow_) {
+                mainWindow_->setIcon(QIcon(":/assets/icons/logo.ico"));
+                _installWindowsShadow(); // HWND 创建后，初始化原生阴影。
+            }
         }
 
         // 6. Load persisted tasks into the model
@@ -139,23 +192,14 @@ struct EdmApplication::Impl {
 
         // 7. Start the live refresh timer
         taskListModel_->startRefresh(1000);
-
-        // 8. System tray icon
-        _initSystemTrayIcon();
     }
 
-    void destroy() {
-        taskListModel_->stopRefresh();
-        trayIcon_.reset();
-        mainWindow_ = nullptr;
-        qmlEngine_.reset();
-        // The objects are parented to the engine for cleanup.
-        taskListModel_ = nullptr;
-        settingsModel_ = nullptr;
-        controller_    = nullptr;
-        dispatcher_.reset();
-        taskObserver_.reset();
-        database_.reset();
+    void _showMainWindow() const {
+        if (!mainWindow_) return;
+
+        mainWindow_->showNormal();
+        mainWindow_->raise();
+        mainWindow_->requestActivate();
     }
 
     void _initSystemTrayIcon() {
@@ -171,12 +215,7 @@ struct EdmApplication::Impl {
         trayIcon_->setContextMenu(menu);
         trayIcon_->show();
 
-        QObject::connect(show, &QAction::triggered, [this]() {
-            if (mainWindow_) {
-                mainWindow_->showNormal();
-                mainWindow_->requestActivate();
-            }
-        });
+        QObject::connect(show, &QAction::triggered, [this]() { _showMainWindow(); });
 
         QObject::connect(exit, &QAction::triggered, []() { QApplication::quit(); });
 
@@ -185,13 +224,36 @@ struct EdmApplication::Impl {
             &QSystemTrayIcon::activated,
             [this](QSystemTrayIcon::ActivationReason reason) {
                 if (reason == QSystemTrayIcon::Trigger) {
-                    if (mainWindow_) {
-                        mainWindow_->showNormal();
-                        mainWindow_->requestActivate();
-                    }
+                    _showMainWindow();
                 }
             }
         );
+    }
+
+    void shutdown() {
+        taskListModel_->stopRefresh();
+
+        if (shadowFilterInstalled_) {
+            qApp->removeNativeEventFilter(&shadowFilter_);
+            shadowFilterInstalled_ = false;
+        }
+
+#ifdef Q_OS_WIN
+        shadowFilter_.setWindow(nullptr);
+#endif
+
+        trayIcon_.reset();
+        mainWindow_ = nullptr;
+        qmlEngine_.reset();
+
+        // The objects are parented to the engine for cleanup.
+        taskListModel_ = nullptr;
+        settingsModel_ = nullptr;
+        controller_    = nullptr;
+
+        dispatcher_.reset();
+        taskObserver_.reset();
+        database_.reset();
     }
 };
 
@@ -203,8 +265,8 @@ EdmApplication& EdmApplication::getInstance() {
     return instance;
 }
 
-void EdmApplication::initApp() { impl->init(); }
-void EdmApplication::destroyApp() { impl->destroy(); }
+void EdmApplication::initialize() { impl->initiailze(); }
+void EdmApplication::shutdown() { impl->shutdown(); }
 
 Dispatcher*            EdmApplication::getDispatcher() const { return impl->dispatcher_.get(); }
 DownloadDatabase*      EdmApplication::getDatabase() const { return impl->database_.get(); }

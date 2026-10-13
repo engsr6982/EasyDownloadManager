@@ -3,6 +3,8 @@
 #include <memory>
 #include <qtclasshelpermacros.h>
 
+
+class QApplication;
 class QSystemTrayIcon;
 class QQmlApplicationEngine;
 class QQuickWindow;
@@ -33,12 +35,12 @@ public:
      * Creates the database, dispatcher, QML engine, registers QML types, and
      * loads the main QML file. Must be called after QApplication is constructed.
      */
-    void initApp();
+    void initialize();
 
     /**
      * @brief Tear down all resources.
      */
-    void destroyApp();
+    void shutdown();
 
     [[nodiscard]] Dispatcher*            getDispatcher() const;
     [[nodiscard]] DownloadDatabase*      getDatabase() const;
