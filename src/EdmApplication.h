@@ -11,8 +11,7 @@ class QQuickWindow;
 
 namespace edm {
 
-class Dispatcher;
-class DownloadDatabase;
+class AppService;
 class QmlTaskListModel;
 class QmlSettings;
 class QmlController;
@@ -32,8 +31,9 @@ public:
     /**
      * @brief Initialize the application.
      *
-     * Creates the database, dispatcher, QML engine, registers QML types, and
-     * loads the main QML file. Must be called after QApplication is constructed.
+     * Creates the AppService (database + download engine), QML engine,
+     * registers QML types, and loads the main QML file. Must be called after
+     * QApplication is constructed.
      */
     void initialize();
 
@@ -42,18 +42,11 @@ public:
      */
     void shutdown();
 
-    [[nodiscard]] Dispatcher*            getDispatcher() const;
-    [[nodiscard]] DownloadDatabase*      getDatabase() const;
     [[nodiscard]] QSystemTrayIcon*       getTrayIcon() const;
     [[nodiscard]] QQmlApplicationEngine* getQmlEngine() const;
 
     /// Returns the root QQuickWindow if loaded, otherwise nullptr.
     [[nodiscard]] QQuickWindow* getMainWindow() const;
-
-    // QML-facing singleton accessors (for internal wiring)
-    [[nodiscard]] QmlTaskListModel* getTaskListModel() const;
-    [[nodiscard]] QmlSettings*      getSettingsModel() const;
-    [[nodiscard]] QmlController*    getController() const;
 };
 
 } // namespace edm

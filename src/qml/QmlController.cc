@@ -14,9 +14,8 @@ namespace edm {
 QmlController::QmlController(QObject* parent) : QObject(parent) {}
 
 void QmlController::minimizeToTray() {
-    auto* mainWin = EdmApplication::getInstance().getMainWindow();
-    if (mainWin) {
-        mainWin->hide();
+    if (auto* window = EdmApplication::getInstance().getMainWindow()) {
+        window->hide();
     }
 }
 

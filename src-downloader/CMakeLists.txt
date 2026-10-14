@@ -2,8 +2,6 @@ set(DOWNLOADER_SOURCES
         Dispatcher.cc
         Dispatcher.h
         ITaskObserver.h
-        Global.h
-        expected.h
         utils/TaskLogger.h
         utils/TaskLogger.cc
         downloader/DownloadTypes.h
@@ -48,6 +46,7 @@ else()
 endif()
 
 target_link_libraries(src-downloader PUBLIC
+        edm-common
         CURL::libcurl
         fmt::fmt
         spdlog::spdlog

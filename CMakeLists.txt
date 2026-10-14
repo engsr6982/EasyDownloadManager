@@ -20,7 +20,8 @@ find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(glaze CONFIG REQUIRED)
 
-# --- 引入下载引擎子目录 ---
+# --- 引入子目录 ---
+add_subdirectory(src-common)
 add_subdirectory(src-downloader)
 add_subdirectory(test/cli)
 
@@ -28,11 +29,10 @@ add_subdirectory(test/cli)
 set(PROJECT_SOURCES
         src/EdmConfig.cc
         src/EdmConfig.h
+        src/AppService.cc
+        src/AppService.h
         src/database/DownloadDatabase.cc
         src/database/DownloadDatabase.h
-        src/event/EventBus.h
-        src/event/SignalHandler.cc
-        src/event/SignalHandler.h
         src/qml/QmlTaskListModel.cc
         src/qml/QmlTaskListModel.h
         src/qml/QmlTaskDetail.cc
@@ -42,11 +42,9 @@ set(PROJECT_SOURCES
         src/qml/QmlController.cc
         src/qml/QmlController.h
         src/utils/EnumUtils.h
-        src/utils/Utils.h
         src/EdmApplication.cc
         src/EdmApplication.h
         src/main.cpp
-        src/utils/TimeUtils.h
         Assets.qrc
         src/FramelessShadowFilter.cc
         src/FramelessShadowFilter.h
@@ -136,6 +134,7 @@ target_link_libraries(EasyDownloadManager PRIVATE
         Qt6::Quick
         Qt6::QuickControls2
         src-downloader
+        edm-common
         magic_enum::magic_enum
         SQLiteCpp
 )

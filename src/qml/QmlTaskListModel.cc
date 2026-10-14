@@ -1,18 +1,14 @@
 #include "QmlTaskListModel.h"
 
-#include "Dispatcher.h"
-#include "EdmConfig.h"
+#include "AppService.h"
 #include "QmlTaskDetail.h"
 #include "database/DownloadDatabase.h"
 #include "database/TaskModel.h"
-#include "database/TaskModelConversion.h"
 #include "downloader/DownloadTypes.h"
-#include "event/EventBus.h"
 #include "utils/TimeUtils.h"
 #include "utils/Utils.h"
 
 #include <QDateTime>
-#include <QFile>
 #include <QString>
 
 #include <magic_enum/magic_enum.hpp>
@@ -63,18 +59,6 @@ QmlTaskListModel::QmlTaskListModel(QObject* parent) : QAbstractListModel(parent)
     refreshTimer_->setInterval(1000);
     refreshTimer_->setSingleShot(false);
     connect(refreshTimer_, &QTimer::timeout, this, &QmlTaskListModel::onRefreshTick);
-
-    // Listen to EventBus so newly created tasks are inserted.
-    connect(EventBus::instance(), &EventBus::onTaskCreated, this, [this](std::shared_ptr<edm::TaskModel> const& model) {
-        if (!model) return;
-        int id = model->id;
-        if (id <= kInvalidTaskID) return;
-        if (idToRow_.find(id) != idToRow_.end()) {
-            refreshRow(static_cast<int>(idToRow_[id]));
-            return;
-        }
-        insertRowFromModel(model);
-    });
 }
 
 QmlTaskListModel::~QmlTaskListModel() { stopRefresh(); }
@@ -162,30 +146,37 @@ QHash<int, QByteArray> QmlTaskListModel::roleNames() const {
 
 // ---------- Wiring ----------
 
-void QmlTaskListModel::setDispatcher(Dispatcher* d) { dispatcher_ = d; }
-void QmlTaskListModel::setDatabase(DownloadDatabase* db) { database_ = db; }
+void QmlTaskListModel::setService(AppService* service) {
+    service_ = service;
+    if (!service_) return;
+
+    connect(service, &AppService::taskCreated, this, &QmlTaskListModel::onServiceTaskCreated);
+    connect(service, &AppService::taskRemoved, this, &QmlTaskListModel::onServiceTaskRemoved);
+    connect(service, &AppService::taskStateChanged, this, &QmlTaskListModel::onServiceTaskStateChanged);
+    connect(service, &AppService::taskError, this, &QmlTaskListModel::onServiceTaskError);
+    connect(service, &AppService::taskFileNameChanged, this, &QmlTaskListModel::onServiceTaskFileNameChanged);
+}
 
 void QmlTaskListModel::reloadFromDatabase() {
-    if (!database_) return;
+    auto* db = service_ ? service_->database() : nullptr;
+    if (!db) return;
     beginResetModel();
     rows_.clear();
     idToRow_.clear();
 
-    totalCount_ = database_->getTaskCount();
+    totalCount_ = db->getTaskCount();
 
     // 加载第一批任务（按 lastTry 倒序，最新在前）
     if (totalCount_ > 0) {
-        auto batch = database_->getTasksRange(0, kBatchSize);
+        auto batch = db->getTasksRange(0, kBatchSize);
         for (auto& task : batch) {
             rows_.push_back(Row{std::move(task), nullptr});
             idToRow_[rows_.back().model->id] = rows_.size() - 1;
         }
-        // 关联 Dispatcher 中的实时状态
-        if (dispatcher_) {
-            for (size_t i = 0; i < rows_.size(); ++i) {
-                if (auto s = dispatcher_->getTaskState(rows_[i].model->id)) {
-                    rows_[i].liveState = s;
-                }
+        // 关联服务中活跃任务的实时状态
+        for (size_t i = 0; i < rows_.size(); ++i) {
+            if (auto s = service_->taskState(rows_[i].model->id)) {
+                rows_[i].liveState = s;
             }
         }
     }
@@ -194,13 +185,14 @@ void QmlTaskListModel::reloadFromDatabase() {
 }
 
 void QmlTaskListModel::loadNextBatch() {
-    if (!database_) return;
+    auto* db = service_ ? service_->database() : nullptr;
+    if (!db) return;
     int const offset    = static_cast<int>(rows_.size());
     int const remaining = totalCount_ - offset;
     if (remaining <= 0) return;
 
     int const limit = std::min(kBatchSize, remaining);
-    auto      batch = database_->getTasksRange(offset, limit);
+    auto      batch = db->getTasksRange(offset, limit);
     if (batch.empty()) return;
 
     int const firstRow = static_cast<int>(rows_.size());
@@ -210,12 +202,10 @@ void QmlTaskListModel::loadNextBatch() {
         rows_.push_back(Row{std::move(task), nullptr});
         idToRow_[rows_.back().model->id] = rows_.size() - 1;
     }
-    // 关联 Dispatcher 中的实时状态
-    if (dispatcher_) {
-        for (int i = firstRow; i <= lastRow; ++i) {
-            if (auto s = dispatcher_->getTaskState(rows_[i].model->id)) {
-                rows_[i].liveState = s;
-            }
+    // 关联服务中活跃任务的实时状态
+    for (int i = firstRow; i <= lastRow; ++i) {
+        if (auto s = service_->taskState(rows_[i].model->id)) {
+            rows_[i].liveState = s;
         }
     }
     endInsertRows();
@@ -259,8 +249,8 @@ void QmlTaskListModel::insertRowFromModel(std::shared_ptr<TaskModel> const& mode
     for (size_t i = 0; i < rows_.size(); ++i) {
         idToRow_[rows_[i].model->id] = i;
     }
-    if (dispatcher_) {
-        if (auto s = dispatcher_->getTaskState(rows_.front().model->id)) {
+    if (service_) {
+        if (auto s = service_->taskState(rows_.front().model->id)) {
             rows_.front().liveState = s;
         }
     }
@@ -317,11 +307,11 @@ void QmlTaskListModel::refreshRow(int row) {
 // ---------- Refresh tick ----------
 
 void QmlTaskListModel::onRefreshTick() {
-    if (!dispatcher_) return;
-    dispatcher_->updateAllSpeeds();
+    if (!service_) return;
+    service_->updateSpeeds();
     for (size_t i = 0; i < rows_.size(); ++i) {
         int id = rows_[i].model->id;
-        if (auto s = dispatcher_->getTaskState(id)) {
+        if (auto s = service_->taskState(id)) {
             rows_[i].liveState = s;
         }
         refreshRow(static_cast<int>(i));
@@ -331,60 +321,27 @@ void QmlTaskListModel::onRefreshTick() {
 // ---------- Task actions ----------
 
 bool QmlTaskListModel::createTask(QString const& url, QString const& saveDir, bool useProxy) {
-    if (!dispatcher_) {
-        emit createTaskError(url, QStringLiteral("Dispatcher not initialized"));
+    if (!service_) {
+        emit createTaskError(url, QStringLiteral("Service is not initialized"));
         return false;
     }
     if (url.trimmed().isEmpty()) {
-        emit createTaskError(url, QStringLiteral("URL is empty"));
+        emit createTaskError(url, QStringLiteral("url is empty"));
         return false;
     }
 
-    auto& conf = EdmConfig::getInstance();
-
-    auto model         = TaskModel::make();
-    auto stdUrl        = url.toStdString();
-    auto stdSaveDir    = saveDir.toStdString();
-    model->url         = stdUrl;
-    model->bandLimit   = conf.getBandwidthLimit();
-    model->threadCount = conf.getThreadCount();
-    model->retryCount  = kRetryCount;
-    model->firstTry    = time_utils::nowSeconds();
-    model->lastTry     = model->firstTry;
-    model->userAgent   = conf.getUserAgent().toStdString();
-    model->saveDir     = stdSaveDir;
-
-    // 从 URL 路径推导占位文件名 (在 MetaInfoFetcher 获取真实文件名之前)
-    model->fileName = utils::resolveFileName(stdUrl);
-
-    // 持久化到数据库以获取有效 TaskId
-    database_->insertTask(model);
-
-    // 转换为引擎配置
-    auto configure = toTaskContext(model);
-    if (useProxy) {
-        if (auto proxy = conf.getProxyConfig(); !proxy.isEnabled()) {
-            configure->proxyUrl = proxy.toProxyUrl();
-        }
-    }
-
-    auto created = dispatcher_->createTask(configure);
-    if (!created) {
-        QString msg = QString::fromStdString(created.error().message());
-        emit    createTaskError(url, msg);
+    // 业务逻辑在 AppService 中，成功经 taskCreated 信号插入行（见 onServiceTaskCreated）。
+    auto result = service_->createTask(url, saveDir, useProxy);
+    if (!result) {
+        emit createTaskError(url, QString::fromStdString(result.error().message()));
         return false;
     }
-
-    // 将新任务插入 UI 模型（最新任务放最前面）
-    // 注意：insertRowFromModel 接受 const&，不会移动 model，因此后续可以安全使用。
-    insertRowFromModel(model);
-    emit EventBus::instance() -> onTaskCreated(model);
     return true;
 }
 
 bool QmlTaskListModel::pauseTask(int taskId) {
-    if (!dispatcher_) return false;
-    auto r = dispatcher_->pauseTask(taskId);
+    if (!service_) return false;
+    auto r = service_->pauseTask(taskId);
     if (!r) {
         emit taskActionError(QStringLiteral("pause"), taskId, QString::fromStdString(r.error().message()));
         return false;
@@ -393,8 +350,8 @@ bool QmlTaskListModel::pauseTask(int taskId) {
 }
 
 bool QmlTaskListModel::resumeTask(int taskId) {
-    if (!dispatcher_) return false;
-    auto r = dispatcher_->resumeTask(taskId);
+    if (!service_) return false;
+    auto r = service_->resumeTask(taskId);
     if (!r) {
         emit taskActionError(QStringLiteral("resume"), taskId, QString::fromStdString(r.error().message()));
         return false;
@@ -403,8 +360,8 @@ bool QmlTaskListModel::resumeTask(int taskId) {
 }
 
 bool QmlTaskListModel::cancelTask(int taskId) {
-    if (!dispatcher_) return false;
-    auto r = dispatcher_->cancelTask(taskId);
+    if (!service_) return false;
+    auto r = service_->cancelTask(taskId);
     if (!r) {
         emit taskActionError(QStringLiteral("cancel"), taskId, QString::fromStdString(r.error().message()));
         return false;
@@ -413,34 +370,15 @@ bool QmlTaskListModel::cancelTask(int taskId) {
 }
 
 bool QmlTaskListModel::deleteTask(int taskId, bool deleteFiles) {
-    int row = findRow(taskId);
-    if (row < 0) return false;
+    if (!service_) return false;
 
-    // Best-effort cancel; ignore errors (task may be terminal).
-    if (dispatcher_) dispatcher_->cancelTask(taskId);
-
-    // 如果需要同时删除磁盘文件
-    if (deleteFiles && row < static_cast<int>(rows_.size())) {
-        auto const& m        = rows_[row].model;
-        auto        basePath = QString::fromStdString(m->saveDir) + u'/' + QString::fromStdString(m->fileName);
-
-        // 删除可能的最终文件、临时文件和元数据文件
-        QString const filesToDelete[] = {
-            basePath,                               // 最终文件
-            basePath + QStringLiteral(".edm"),      // 临时下载文件
-            basePath + QStringLiteral(".edm.meta"), // 进度元数据
-        };
-        for (auto const& f : filesToDelete) {
-            QFile::remove(f);
-        }
+    // 取消、删除磁盘文件与数据库记录均在服务内完成；成功会触发
+    // onServiceTaskRemoved 移除对应行。
+    auto r = service_->deleteTask(taskId, deleteFiles);
+    if (!r) {
+        emit taskActionError(QStringLiteral("delete"), taskId, QString::fromStdString(r.error().message()));
+        return false;
     }
-
-    // 从数据库删除
-    if (database_) {
-        database_->deleteTask(taskId);
-    }
-
-    removeRow(row);
     return true;
 }
 
@@ -472,6 +410,58 @@ QmlTaskDetail* QmlTaskListModel::getTaskDetail(int taskId) {
     detail->setLiveState(r.liveState.get());
     details_[taskId] = QPointer<QmlTaskDetail>(detail);
     return detail;
+}
+
+// ---------- AppService 信号槽 ----------
+
+void QmlTaskListModel::onServiceTaskCreated(std::shared_ptr<TaskModel> const& model) {
+    if (!model) return;
+    int id = model->id;
+    if (id <= kInvalidTaskID) return;
+    int row = findRow(id);
+    if (row >= 0) {
+        refreshRow(row);
+        return;
+    }
+    insertRowFromModel(model);
+}
+
+void QmlTaskListModel::onServiceTaskRemoved(int taskId) {
+    int row = findRow(taskId);
+    if (row >= 0) removeRow(row);
+}
+
+void QmlTaskListModel::onServiceTaskStateChanged(int taskId) {
+    int row = findRow(taskId);
+    if (row < 0) return;
+    // 状态变化后重新挂接实时状态并刷新该行，让 UI 立即反映终态
+    if (auto s = service_->taskState(taskId)) {
+        rows_[row].liveState = s;
+    }
+    refreshRow(row);
+}
+
+void QmlTaskListModel::reloadRowFromService(int taskId) {
+    auto* db = service_ ? service_->database() : nullptr;
+    if (!db) return;
+    int row = findRow(taskId);
+    if (row < 0) return;
+    if (auto model = db->getTaskById(taskId)) {
+        rows_[row].model = std::move(model);
+        if (auto s = service_->taskState(taskId)) {
+            rows_[row].liveState = s;
+        }
+    }
+    refreshRow(row);
+}
+
+void QmlTaskListModel::onServiceTaskError(int taskId, QString const& /*message*/) {
+    // errorMsg 已由服务写入数据库，重读该行让 UI 展示最新错误
+    reloadRowFromService(taskId);
+}
+
+void QmlTaskListModel::onServiceTaskFileNameChanged(int taskId) {
+    reloadRowFromService(taskId);
 }
 
 } // namespace edm

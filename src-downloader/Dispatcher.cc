@@ -95,12 +95,22 @@ void Dispatcher::updateSpeed(TaskId id) {
 
 Expected<> Dispatcher::pauseTask(TaskId id) {
     EDM_LOG_INFO(id, "Dispatcher: pauseTask requested");
-    std::lock_guard<std::mutex> lock(impl_->tasksMutex_);
+    std::shared_ptr<downloader::DownloadTask> task;
+    {
+        std::lock_guard<std::mutex> lock(impl_->tasksMutex_);
 
-    auto iter = impl_->activeTasks_.find(id);
-    if (iter != impl_->activeTasks_.end()) {
-        return iter->second->pause();
+        auto iter = impl_->activeTasks_.find(id);
+        if (iter != impl_->activeTasks_.end()) {
+            task = iter->second;
+        }
     }
+
+    if (task) {
+        // 不要在持有 tasksMutex_ 时调用任务方法：pause 会同步触发 observer 回调，
+        // 回调可能再次进入 Dispatcher（如 getTaskState），同线程重复加锁会抛异常。
+        return task->pause();
+    }
+
     EDM_LOG_WARN(id, "Dispatcher: pauseTask failed, task is not active");
     return makeStringError("Task is not active");
 }
@@ -127,12 +137,21 @@ Expected<> Dispatcher::resumeTask(TaskId id) {
 
 Expected<> Dispatcher::cancelTask(TaskId id) {
     EDM_LOG_INFO(id, "Dispatcher: cancelTask requested");
-    std::lock_guard<std::mutex> lock(impl_->tasksMutex_);
+    std::shared_ptr<downloader::DownloadTask> task;
+    {
+        std::lock_guard<std::mutex> lock(impl_->tasksMutex_);
 
-    auto iter = impl_->activeTasks_.find(id);
-    if (iter != impl_->activeTasks_.end()) {
-        return iter->second->cancel();
+        auto iter = impl_->activeTasks_.find(id);
+        if (iter != impl_->activeTasks_.end()) {
+            task = iter->second;
+        }
     }
+
+    if (task) {
+        // 与 pauseTask 同理：解锁后再调用任务方法，避免同步回调重入 Dispatcher。
+        return task->cancel();
+    }
+
     EDM_LOG_WARN(id, "Dispatcher: cancelTask failed, task is not active");
     return makeStringError("Task is not active");
 }
