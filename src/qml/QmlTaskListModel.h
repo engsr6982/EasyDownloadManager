@@ -85,6 +85,9 @@ public:
     Q_INVOKABLE bool resumeTask(int taskId);
     Q_INVOKABLE bool cancelTask(int taskId);
 
+    /// 从头重新下载（清除进度文件），用于已完成/失败任务。
+    Q_INVOKABLE bool redownloadTask(int taskId);
+
     /// 删除任务；deleteFiles 为 true 时一并清理磁盘文件（含 .edm/.edm.meta）。
     /// 成功后对应行由 AppService::taskRemoved 信号移除。
     Q_INVOKABLE bool deleteTask(int taskId, bool deleteFiles);
@@ -116,8 +119,13 @@ private:
     void insertRowFromModel(std::shared_ptr<TaskModel> const& model);
     void removeRow(int row);
     void refreshRow(int row);
+    /// 用某一行的数据刷新详情对象（文件信息 + 线程数 + 实时状态）。
+    void updateDetailFromRow(QmlTaskDetail* detail, int row);
     /// 从数据库重读某行模型（用于错误/文件名变更后刷新显示）。
-    void reloadRowFromService(int taskId);
+    /// 返回 false 表示数据库中该任务已不存在（视图应移除该行）。
+    bool reloadRowFromService(int taskId);
+    /// 崩溃遗留的 Running 状态实际未在下载，归位为 Paused 便于手动继续。
+    void normalizeCrashedTaskModel(std::shared_ptr<TaskModel> const& model);
 
     // QML/snapshot formatters
     static QString formatFileSize(FileSize size);

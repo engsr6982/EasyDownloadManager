@@ -25,6 +25,7 @@ struct TaskModel {
     std::string errorMsg;                         // 错误信息
     std::string saveDir;                          // 保存目录
     int         retryCount{kRetryCount};          // 重试次数
+    bool        useProxy{false};                  // 是否使用代理
 
     [[nodiscard]] inline static std::shared_ptr<TaskModel> make() { return std::make_shared<TaskModel>(); }
 

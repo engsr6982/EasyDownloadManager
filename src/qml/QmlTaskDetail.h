@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Global.h"
+
 #include <QAbstractListModel>
 #include <QObject>
 #include <QtQml/qqmlregistration.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -16,37 +19,76 @@ struct DownloadRange;
 } // namespace downloader
 
 /**
- * @brief Live per-range status for one task, exposed to QML as a list model.
+ * @brief 任务详情里的线程状态列表。
  *
- * Roles match what TaskDetailDrawer's thread list needs.
+ * 一行 = 一个引擎中实际存在的下载线程。引擎是工作窃取式分片池，线程与分片并非
+ * 固定绑定，所以每行展示的是"该线程此刻正在处理哪个分片"，数据直接来自
+ * DownloadState::workers 槽位（由对应 worker 独占写入），不再做任何分桶近似。
+ * 行数 = 实际线程数；任务未启动时回落到配置线程数占位并显示 N/A。
  */
 class QmlRangeModel : public QAbstractListModel {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Provided by QmlTaskDetail")
 
+    Q_PROPERTY(bool active READ isActive NOTIFY activeChanged)
+
 public:
     enum Roles {
         RangeIndexRole = Qt::UserRole + 1,
-        RangeStartRole,
-        RangeEndRole,
+        RangeStatusRole,
+        RangeProgressRole,
         RangeDownloadedRole,
         RangeSizeRole,
-        RangeProgressRole,
-        RangeStatusRole,
+        RangeStartRole,
+        RangeEndRole,
         RangeAttemptsRole,
+        RangeDownloadedStrRole,
+        RangeSizeStrRole,
+        RangeSpeedStrRole,
     };
+
+    /// 线程槽位上限，必须与 DownloadState::kMaxWorkers 一致（.cc 中有 static_assert 兜底）
+    static constexpr int kMaxWorkerSlots = 32;
 
     explicit QmlRangeModel(QObject* parent = nullptr);
 
-    int rowCount(QModelIndex const& parent = {}) const override;
-    QVariant data(QModelIndex const& index, int role = Qt::DisplayRole) const override;
+    int                    rowCount(QModelIndex const& parent = {}) const override;
+    QVariant               data(QModelIndex const& index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void update(std::vector<std::shared_ptr<downloader::DownloadRange>> const& ranges);
+    /// 是否有可展示的实时线程数据（未启动/无实时状态时为 false）。
+    bool isActive() const { return active_; }
+
+    /// 设置占位行数（= 配置的线程数），仅在拿不到实时线程数时使用。
+    void setThreadCount(int threadCount);
+
+    /// 用最新实时状态刷新各线程行，逐行差分发 dataChanged。
+    void update(downloader::DownloadState const* state);
+
+signals:
+    void activeChanged();
 
 private:
-    std::vector<std::shared_ptr<downloader::DownloadRange>> ranges_;
+    struct ThreadRow {
+        QString status;
+        double  progress{0.0};
+        int64_t downloaded{0};
+        int64_t sizeTotal{0};
+        int64_t rangeStart{0};
+        int64_t rangeEnd{0};
+        int     attempts{0};
+        double  speed{0.0}; // 该线程最近一次采样的速率（B/s）
+    };
+
+    int                    threadCount_{0};
+    bool                   active_{false};
+    std::vector<ThreadRow> rows_;
+
+    // 每线程速率采样（按线程槽位下标，不随行增减移动）
+    std::array<int64_t, kMaxWorkerSlots> prevBytes_{};
+    std::array<double, kMaxWorkerSlots>  slotSpeed_{};
+    qint64                               lastSampleMs_{0};
 };
 
 /**
@@ -120,8 +162,13 @@ public:
 
     /// Pull the live (state-dependent) fields from a DownloadState.
     /// `state` may be null (if the task is no longer running); in that case
-    /// the live fields are zeroed and we keep the last status string.
-    void setLiveState(downloader::DownloadState const* state);
+    /// the live fields are zeroed and the status falls back to `fallbackState`
+    /// （数据库里持久化的状态），否则"继续/暂停/打开文件"等菜单项会因为
+    /// 状态串为空而被错误地全部禁用。
+    void setLiveState(downloader::DownloadState const* state, TaskState fallbackState);
+
+    /// 设置 rangesModel 的占位行数（= 下载线程数）。
+    void setThreadCount(int threadCount);
 
     void setErrorMsg(QString const& msg);
 

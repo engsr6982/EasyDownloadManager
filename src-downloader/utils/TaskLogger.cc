@@ -47,6 +47,8 @@ std::shared_ptr<spdlog::logger> TaskLoggerManager::getOrCreate(TaskId taskId) {
     auto filename = std::filesystem::path(logDir_) / ("task_" + std::to_string(taskId) + ".log");
 
     std::vector<spdlog::sink_ptr> sinks;
+    // 每次创建 logger 都清空文件：重新下载/新建任务复用同一 id，
+    // 追加会把多次下载的历史混在一起，反而看不清本次过程。
     sinks.push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename.string(), true));
     sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 

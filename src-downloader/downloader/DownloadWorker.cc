@@ -16,11 +16,13 @@ namespace edm ::downloader {
 DownloadWorker::DownloadWorker(
     std::shared_ptr<TaskContext>       config,
     std::string                        outFilePath,
-    std::shared_ptr<std::atomic<bool>> isTaskRunning
+    std::shared_ptr<std::atomic<bool>> isTaskRunning,
+    WorkerSlot*                        slot
 )
 : config_(std::move(config)),
   outFilePath_(std::move(outFilePath)),
-  isTaskRunning_(std::move(isTaskRunning)) {}
+  isTaskRunning_(std::move(isTaskRunning)),
+  slot_(slot) {}
 
 DownloadWorker::~DownloadWorker() = default;
 
@@ -28,6 +30,7 @@ struct WorkerContext {
     std::FILE*         fp;
     DownloadRange*     range;
     std::atomic<bool>* isTaskRunning;
+    WorkerSlot*        slot;                  // 可为空：仅用于对外汇报线程状态
     bool               rangeValidated{false}; // 为 true 表示服务端确认返回了 Content-Range (206 响应)
 };
 
@@ -54,6 +57,13 @@ size_t DownloadWorker::writeCallback(char* ptr, size_t size, size_t nmemb, void*
 
     // 更新进度条用的原子变量
     ctx->range->downloaded.fetch_add(totalBytes, std::memory_order_relaxed);
+
+    // 汇报线程状态：收到首个数据块说明响应已到达。这里是数据热路径，
+    // 只做 relax 原子写，不打日志。
+    if (ctx->slot) {
+        ctx->slot->state.store(static_cast<int>(WorkerState::Downloading), std::memory_order_relaxed);
+        ctx->slot->downloaded.fetch_add(static_cast<int64_t>(totalBytes), std::memory_order_relaxed);
+    }
 
     return totalBytes;
 }
@@ -122,7 +132,10 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     curl.setOpt(CURLOPT_RANGE, rangeStr.c_str());
     EDM_LOG_TRACE(config_->id, "downloadRange: requesting bytes {}", rangeStr);
 
-    WorkerContext ctx{fp, range.get(), isTaskRunning_.get(), /*rangeValidated=*/false};
+    // 暂停/取消能立刻打断连接与传输（写回调只在有数据时才被调用）
+    curl.setAbortFlag(isTaskRunning_.get());
+
+    WorkerContext ctx{fp, range.get(), isTaskRunning_.get(), slot_, /*rangeValidated=*/false};
     curl.setOpt(CURLOPT_HEADERFUNCTION, headerCallback);
     curl.setOpt(CURLOPT_HEADERDATA, &ctx);
     curl.setOpt(CURLOPT_WRITEFUNCTION, writeCallback);
@@ -191,7 +204,9 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
     CurlEx curl = std::move(curlExRes.value());
 
     // downloadWholeFile 不需要范围校验（从偏移 0 写全文件是正确的）
-    WorkerContext ctx{fp, range.get(), isTaskRunning_.get(), /*rangeValidated=*/true};
+    curl.setAbortFlag(isTaskRunning_.get());
+
+    WorkerContext ctx{fp, range.get(), isTaskRunning_.get(), slot_, /*rangeValidated=*/true};
     curl.setOpt(CURLOPT_WRITEFUNCTION, writeCallback);
     curl.setOpt(CURLOPT_WRITEDATA, &ctx);
 

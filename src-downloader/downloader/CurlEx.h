@@ -3,6 +3,7 @@
 
 #include "curl/curl.h"
 
+#include <atomic>
 #include <optional>
 #include <string>
 #include <vector>
@@ -71,6 +72,12 @@ public:
      * @see curl_slist_append
      */
     CurlEx& append(std::string header);
+
+    /**
+     * 安装可中断回调：flag 被置为 false 时立刻中止本次传输。
+     * @param flag 生命周期必须覆盖本次 perform()
+     */
+    CurlEx& setAbortFlag(std::atomic<bool> const* flag);
 
     /**
      * 执行请求

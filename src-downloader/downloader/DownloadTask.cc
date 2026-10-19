@@ -142,10 +142,15 @@ Expected<> DownloadTask::prepareTask() {
     if (!configure_->metaInfo) {
         EDM_LOG_DEBUG(taskId, "Fetching meta info from server");
 
-        auto metaRes = edm::downloader::MetaInfoFetcher::fetchAll(configure_);
+        auto metaRes = edm::downloader::MetaInfoFetcher::fetchAll(configure_, isRunningFlag_);
         if (!metaRes) {
-            auto err = metaRes.error().message();
+            // 暂停/取消引发的中断不是错误：不能写进数据库，也不该显示给用户
+            if (isAbortRequested()) {
+                EDM_LOG_INFO(taskId, "Meta info fetch aborted by pause/cancel request");
+                return makeStringError("aborted by pause/cancel");
+            }
 
+            auto err = metaRes.error().message();
             EDM_LOG_ERROR(taskId, "Meta info fetch failed: {}", err);
             notifyError(err);
             setState(TaskState::Failed);
@@ -349,15 +354,24 @@ void DownloadTask::launchWorkers() {
     int workerCount = configure_->metaInfo->supportRange ? static_cast<int>(configure_->threads) : 1;
     workerCount     = std::max(workerCount, 1);
     workerCount     = std::min<int>(workerCount, static_cast<int>(std::max<size_t>(state_->ranges.size(), 1)));
+    workerCount     = std::min<int>(workerCount, static_cast<int>(DownloadState::kMaxWorkers));
     activeWorkers_.store(workerCount, std::memory_order_relaxed);
+
+    // 重置线程槽位，供 UI 读取真实线程状态（每轮启动重新发布一次）
+    for (auto& slot : state_->workers) {
+        slot.state.store(static_cast<int>(WorkerState::Idle), std::memory_order_relaxed);
+        slot.rangeIndex.store(SIZE_MAX, std::memory_order_relaxed);
+        slot.attempt.store(0, std::memory_order_relaxed);
+    }
+    state_->workerCount.store(workerCount, std::memory_order_release);
 
     EDM_LOG_INFO(taskId, "Launching {} worker(s) for {} range(s)", workerCount, state_->ranges.size());
 
     workers_.reserve(static_cast<size_t>(workerCount));
     auto self = shared_from_this();
     for (int i = 0; i < workerCount; ++i) {
-        workers_.emplace_back([self]() {
-            self->workerLoop();
+        workers_.emplace_back([self, slot = static_cast<size_t>(i)]() {
+            self->workerLoop(slot);
             if (self->activeWorkers_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 self->finalizeTask();
             }
@@ -365,10 +379,11 @@ void DownloadTask::launchWorkers() {
     }
 }
 
-void DownloadTask::workerLoop() {
+void DownloadTask::workerLoop(size_t slot) {
     auto taskId = configure_->id;
-    EDM_LOG_DEBUG(taskId, "Worker started");
-    DownloadWorker worker(configure_, outFilePath_, isRunningFlag_);
+    EDM_LOG_DEBUG(taskId, "Worker {} started", slot);
+    auto& slotRef = state_->workers[slot];
+    DownloadWorker worker(configure_, outFilePath_, isRunningFlag_, &slotRef);
 
     while (isRunningFlag_->load(std::memory_order_acquire)) {
         auto idx = nextRangeIndex_.fetch_add(1, std::memory_order_relaxed);
@@ -377,10 +392,15 @@ void DownloadTask::workerLoop() {
         auto range = state_->ranges[idx];
         if (range->completed.load(std::memory_order_relaxed)) continue;
 
-        EDM_LOG_DEBUG(taskId, "Worker picking up range {} [{}, {})", idx, range->start, range->end + 1);
+        EDM_LOG_DEBUG(taskId, "Worker {} picking up range {} [{}, {})", slot, idx, range->start, range->end + 1);
+        // 领到分片 → 请求中；收到首个数据块后由写回调切到"接收中"
+        slotRef.state.store(static_cast<int>(WorkerState::Requesting), std::memory_order_relaxed);
+        slotRef.rangeIndex.store(idx, std::memory_order_relaxed);
+        slotRef.attempt.store(0, std::memory_order_relaxed);
 
         for (int attempt = 0; attempt <= kRetryCount && isRunningFlag_->load(std::memory_order_acquire); ++attempt) {
             range->attempts.store(attempt, std::memory_order_relaxed);
+            slotRef.attempt.store(attempt, std::memory_order_relaxed);
 
             auto res =
                 configure_->metaInfo->supportRange ? worker.downloadRange(range) : worker.downloadWholeFile(range);
@@ -403,41 +423,105 @@ void DownloadTask::workerLoop() {
                     kRetryCount + 1,
                     res.error().message()
                 );
+                slotRef.state.store(static_cast<int>(WorkerState::Retrying), std::memory_order_relaxed);
                 std::this_thread::sleep_for(std::chrono::milliseconds(300 * (attempt + 1)));
+                slotRef.state.store(static_cast<int>(WorkerState::Downloading), std::memory_order_relaxed);
             }
         }
     }
-    EDM_LOG_DEBUG(taskId, "Worker exiting");
+    // 分片取完 = 已完成；被暂停/取消/失败打断 = 已停止（失败的任务不该显示"已完成"）
+    bool const interrupted = !isRunningFlag_->load(std::memory_order_acquire);
+    slotRef.state.store(
+        static_cast<int>(interrupted ? WorkerState::Stopped : WorkerState::Finished),
+        std::memory_order_relaxed
+    );
+    slotRef.rangeIndex.store(SIZE_MAX, std::memory_order_relaxed);
+    EDM_LOG_DEBUG(taskId, "Worker {} exiting ({})", slot, interrupted ? "stopped" : "finished");
 }
 
 void DownloadTask::joinWorkers() {
+    // 终态任务被 Dispatcher 回收后，最后一个 worker 释放 shared_ptr 会在它自己的
+    // 线程上触发 ~DownloadTask；此时 join 自身会抛 std::system_error，必须跳过并 detach。
+    auto const self = std::this_thread::get_id();
     for (auto& worker : workers_) {
-        if (worker.joinable()) worker.join();
+        if (!worker.joinable()) continue;
+        if (worker.get_id() == self) {
+            worker.detach();
+            continue;
+        }
+        worker.join();
     }
     workers_.clear();
 }
 
 Expected<> DownloadTask::start() {
-    std::unique_lock lock{mutex_};
+    // 先收干净上一轮 worker，再碰 state_->ranges。
+    // pause()/cancel() 是放锁之后才 joinWorkers() 的，若这里不先 join，
+    // prepareTask() 中的 ranges.clear()/rebuild 会与仍在遍历该向量的老 worker 竞争。
+    joinWorkers();
 
-    auto taskId = configure_->id;
-    auto state  = state_->state();
+    auto const taskId = configure_->id;
 
-    EDM_LOG_INFO(taskId, "Starting task, currentState={}", static_cast<int>(state));
-    if (state != TaskState::Pending && state != TaskState::Paused && state != TaskState::Failed) {
-        EDM_LOG_WARN(taskId, "Task is not startable from current state {}", static_cast<int>(state));
-        return makeStringError("Task is not startable from current state");
+    {
+        std::unique_lock lock{mutex_};
+
+        auto state = state_->state();
+        EDM_LOG_INFO(taskId, "Starting task, currentState={}", static_cast<int>(state));
+        // 准备阶段没有持锁，可能被重复 start（例如 UI 把"准备中"当成可继续的任务）。
+        // 重复进入会并发执行 prepareTask，必须挡掉。
+        if (preparing_.load(std::memory_order_acquire)) {
+            EDM_LOG_WARN(taskId, "Task is already preparing, ignoring duplicate start");
+            return makeStringError("Task is already preparing");
+        }
+        if (state != TaskState::Pending && state != TaskState::Paused && state != TaskState::Failed
+            && state != TaskState::Canceled) {
+            EDM_LOG_WARN(taskId, "Task is not startable from current state {}", static_cast<int>(state));
+            return makeStringError("Task is not startable from current state");
+        }
+
+        cancelRequested_.store(false, std::memory_order_release);
+        prepareAbort_.store(false, std::memory_order_release);
+        // 探测阶段也要能被中断：isRunningFlag_ 同时是 pause/cancel 的中止信号
+        isRunningFlag_->store(true, std::memory_order_release);
+        preparing_.store(true, std::memory_order_release);
+        // 准备中要能被 UI 识别（"等待中"会被误当成可继续的任务，导致重复 start）
+        setState(TaskState::Preparing);
     }
 
-    if (auto prepared = prepareTask(); !prepared) {
+    // 准备阶段（网络探测 + 磁盘预分配）**不持锁**执行：
+    // 否则 pause()/cancel() 会一直等这把锁，用户看到的就是"任务不响应任何操作"。
+    // 此时任务状态仍是 Pending/Paused，UI 不会去读 ranges，无并发读取风险。
+    auto prepared = prepareTask();
+
+    std::unique_lock lock{mutex_};
+    preparing_.store(false, std::memory_order_release);
+
+    if (cancelRequested_.load(std::memory_order_acquire)) {
+        EDM_LOG_INFO(taskId, "Task canceled during preparation");
+        removeTempFiles();
+        setState(TaskState::Canceled);
+        return {};
+    }
+    if (prepareAbort_.load(std::memory_order_acquire) || !isRunningFlag_->load(std::memory_order_acquire)) {
+        EDM_LOG_INFO(taskId, "Task paused during preparation");
+        setState(TaskState::Paused);
+        return {};
+    }
+    if (!prepared) {
         EDM_LOG_ERROR(taskId, "Task preparation failed: {}", prepared.error().message());
-        return prepared;
+        return prepared; // prepareTask 内部已 notifyError + 置 Failed
     }
 
     setState(TaskState::Running);
     launchWorkers();
     EDM_LOG_INFO(taskId, "Task started and workers launched");
     return {};
+}
+
+void DownloadTask::removeTempFiles() {
+    std::error_code ec;
+    if (!outFilePath_.empty()) std::filesystem::remove(outFilePath_, ec);
+    if (!metaFilePath_.empty()) std::filesystem::remove(metaFilePath_, ec);
 }
 
 void DownloadTask::finalizeTask() {
@@ -492,10 +576,20 @@ void DownloadTask::finalizeTask() {
         return;
     }
 
-    auto finalName = configure_->fileName.empty() ? fileNameFromUrl(configure_->url) : configure_->fileName;
-    auto finalPath = uniqueFinalPath(std::filesystem::path(configure_->saveDir) / sanitizeFileName(finalName));
+    auto finalName  = configure_->fileName.empty() ? fileNameFromUrl(configure_->url) : configure_->fileName;
+    auto targetPath = std::filesystem::path(configure_->saveDir) / sanitizeFileName(finalName);
+    // 重新下载语义：覆盖同名文件。下载全程写在 .edm 临时文件、校验通过后才走到这里，
+    // 所以覆盖不会损坏已有文件。否则沿用旧行为另存为 file(1).ext。
+    auto finalPath = configure_->overwriteExisting ? targetPath : uniqueFinalPath(targetPath);
     std::error_code ec;
     std::filesystem::rename(outFilePath_, finalPath, ec);
+    if (ec && configure_->overwriteExisting) {
+        // 平台差异兜底：rename 不支持覆盖时，先删目标再改名
+        std::error_code removeEc;
+        std::filesystem::remove(finalPath, removeEc);
+        ec.clear();
+        std::filesystem::rename(outFilePath_, finalPath, ec);
+    }
     if (ec) {
         EDM_LOG_ERROR(taskId, "Failed to move completed file: {}", ec.message());
         notifyError("Failed to move completed file: " + ec.message());
@@ -505,13 +599,22 @@ void DownloadTask::finalizeTask() {
     }
 
     std::filesystem::remove(metaFilePath_, ec);
-    currentSpeed_ = 0.0;
+    currentSpeed_.store(0.0, std::memory_order_relaxed);
     state_->setSpeed(0.0);
     EDM_LOG_INFO(taskId, "Download completed: {}", finalPath.string());
     setState(TaskState::Finished);
 }
 
 Expected<> DownloadTask::pause() {
+    // 准备阶段（元信息探测/磁盘预分配）start() 不持锁，这里也必须只用原子量请求中止，
+    // 否则用户点了暂停却要等整个探测结束——表现就是"任务不响应任何操作"。
+    if (preparing_.load(std::memory_order_acquire)) {
+        EDM_LOG_INFO(configure_->id, "Pausing task during preparation");
+        prepareAbort_.store(true, std::memory_order_release);
+        isRunningFlag_->store(false, std::memory_order_release);
+        return {}; // 最终落定为 Paused 由 start() 在探测返回后完成
+    }
+
     {
         std::unique_lock lock{mutex_};
         if (state_->state() != TaskState::Running) {
@@ -531,11 +634,21 @@ Expected<> DownloadTask::pause() {
 Expected<> DownloadTask::resume() { return start(); }
 
 Expected<> DownloadTask::cancel() {
+    if (preparing_.load(std::memory_order_acquire)) {
+        EDM_LOG_INFO(configure_->id, "Canceling task during preparation");
+        cancelRequested_.store(true, std::memory_order_release);
+        prepareAbort_.store(true, std::memory_order_release);
+        isRunningFlag_->store(false, std::memory_order_release);
+        return {}; // 清理与置 Canceled 由 start() 在探测返回后完成
+    }
+
     {
         std::unique_lock lock{mutex_};
-        if (state_->state() != TaskState::Running && state_->state() != TaskState::Paused) {
-            EDM_LOG_WARN(configure_->id, "Cannot cancel: task is not running or paused");
-            return makeStringError("Only running or paused tasks can be canceled");
+        auto             state = state_->state();
+        if (state == TaskState::Canceled) return {}; // 幂等
+        if (state == TaskState::Finished) {
+            EDM_LOG_WARN(configure_->id, "Cannot cancel: task already finished");
+            return makeStringError("Finished tasks cannot be canceled");
         }
         EDM_LOG_INFO(configure_->id, "Canceling task");
         cancelRequested_.store(true, std::memory_order_release);
@@ -544,9 +657,7 @@ Expected<> DownloadTask::cancel() {
     }
 
     joinWorkers();
-    std::error_code ec;
-    std::filesystem::remove(outFilePath_, ec);
-    std::filesystem::remove(metaFilePath_, ec);
+    removeTempFiles();
     EDM_LOG_INFO(configure_->id, "Task canceled, temp files removed");
     return {};
 }
@@ -579,17 +690,22 @@ double DownloadTask::getProgress() {
 }
 
 void DownloadTask::updateSpeed() {
-    std::shared_lock lock{mutex_};
+    // 完全不碰 mutex_：prepareTask()/finalizeTask() 会长时间独占它（网络元信息探测、
+    // 整文件 MD5），而本函数由 UI 的 1s 刷新定时器调用，一旦抢锁就会卡住界面。
+    // 这里只读原子状态与结构稳定的 state_->ranges（仅在 Running 期间遍历；
+    // 结构性重建只发生在 Pending 阶段的 prepareTask 里）。
     if (state_->state() != TaskState::Running) {
-        currentSpeed_ = 0.0;
+        currentSpeed_.store(0.0, std::memory_order_relaxed);
         state_->setSpeed(0.0);
         return;
     }
-    auto total           = getDownloadedBytes();
-    currentSpeed_        = static_cast<double>(total - lastDownloadedBytes_);
-    lastDownloadedBytes_ = total;
+
+    auto const total  = getDownloadedBytes();
+    auto const last   = lastDownloadedBytes_.exchange(total, std::memory_order_relaxed);
+    auto const speed  = static_cast<double>(total - last);
+    currentSpeed_.store(speed, std::memory_order_relaxed);
     state_->setDownloadedBytes(total);
-    state_->setSpeed(currentSpeed_);
+    state_->setSpeed(speed);
 }
 
 std::shared_ptr<edm::TaskContext> DownloadTask::getContext() const { return configure_; }
@@ -605,10 +721,7 @@ int64_t DownloadTask::getDownloadedBytes() const {
 
 std::vector<std::shared_ptr<DownloadRange>> DownloadTask::getRanges() const { return state_->ranges; }
 
-double DownloadTask::getSpeed() const {
-    std::shared_lock lock{mutex_};
-    return currentSpeed_;
-}
+double DownloadTask::getSpeed() const { return currentSpeed_.load(std::memory_order_relaxed); }
 
 TaskState DownloadTask::getState() const {
     std::shared_lock lock{mutex_};

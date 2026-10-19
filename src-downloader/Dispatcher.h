@@ -55,6 +55,13 @@ public:
     Expected<> resumeTask(TaskId id);
     Expected<> cancelTask(TaskId id);
 
+    /**
+     * 从活动集合中摘除任务（best-effort 取消，会 join worker 并删除临时文件）。
+     * 供"删除任务""重新下载"使用：摘除后同 id 可以立即重新入队。
+     * 注意：会阻塞，须在非 GUI 线程调用。
+     */
+    void removeTask(TaskId id);
+
     [[nodiscard]] Expected<> createTask(std::shared_ptr<TaskContext> ctx);
 };
 

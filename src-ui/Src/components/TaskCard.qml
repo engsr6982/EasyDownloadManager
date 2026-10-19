@@ -133,6 +133,8 @@ Item {
                                 return qsTr("已取消");
                             if (s === "Pending")
                                 return qsTr("等待中");
+                            if (s === "Preparing")
+                                return qsTr("准备中");
                             return s;
                         }
                         font.family: Constants.fontFamily
@@ -174,13 +176,15 @@ Item {
                     FluIconButton {
                         text: {
                             var s = cardRoot.statusStr;
-                            if (s === "Running" || s === "Pending")
+                            // 等待中(Pending)尚未开始 → 显示"继续"；准备中(Preparing)已在跑 → 显示"暂停"
+                            if (s === "Running" || s === "Preparing")
                                 return "\uf5a2";  // pause
                             return "\uf606"; // play
                         }
                         enabled: {
                             var s = cardRoot.statusStr;
-                            return s === "Running" || s === "Paused" || s === "Pending" || s === "Failed";
+                            return s === "Running" || s === "Paused" || s === "Pending" || s === "Failed"
+                                || s === "Preparing";
                         }
                         onClicked: cardRoot.pauseClicked(cardRoot.taskId)
                     }

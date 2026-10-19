@@ -41,7 +41,8 @@ void DownloadDatabase::initTables() const {
                     pageTitle TEXT NOT NULL,
                     mimeType TEXT NOT NULL,
                     errorMsg TEXT NOT NULL,
-                    saveDir TEXT NOT NULL
+                    saveDir TEXT NOT NULL,
+                    useProxy INTEGER NOT NULL DEFAULT 0  -- 是否使用代理
                 );
             )"
         );
@@ -68,10 +69,13 @@ void DownloadDatabase::initTables() const {
 
 void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
     std::lock_guard   lock(mutex_);
+    // 必须用 UPSERT（而不是 INSERT OR REPLACE）：后者在 SQLite 里等价于 DELETE+INSERT，
+    // 会触发 headers 表的 ON DELETE CASCADE 把该任务的 header 行删掉——而 header 是
+    // 浏览器集成所必需的持久化数据。UPSERT 原地更新，id 不变，header 行得以保留。
     SQLite::Statement query(
         *db_,
         R"(
-            INSERT OR REPLACE INTO downloads (
+            INSERT INTO downloads (
                 id,
                 url,
                 fileName,
@@ -88,8 +92,27 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                saveDir,
+                useProxy
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+                url         = excluded.url,
+                fileName    = excluded.fileName,
+                fileSize    = excluded.fileSize,
+                category    = excluded.category,
+                state       = excluded.state,
+                bandLimit   = excluded.bandLimit,
+                threadCount = excluded.threadCount,
+                firstTry    = excluded.firstTry,
+                lastTry     = excluded.lastTry,
+                userAgent   = excluded.userAgent,
+                resumable   = excluded.resumable,
+                pageUrl     = excluded.pageUrl,
+                pageTitle   = excluded.pageTitle,
+                mimeType    = excluded.mimeType,
+                errorMsg    = excluded.errorMsg,
+                saveDir     = excluded.saveDir,
+                useProxy    = excluded.useProxy
         )"
     );
 
@@ -116,6 +139,7 @@ void DownloadDatabase::insertTask(std::shared_ptr<TaskModel> task) {
     query.bind(idx++, task->mimeType);
     query.bind(idx++, task->errorMsg);
     query.bind(idx++, task->saveDir);
+    query.bind(idx++, task->useProxy ? 1 : 0);
 
     query.exec();
 
@@ -169,7 +193,8 @@ std::shared_ptr<TaskModel> DownloadDatabase::getTaskById(int id) const {
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir
+                saveDir,
+                useProxy
             FROM downloads
             WHERE id=?
         )"
@@ -201,6 +226,7 @@ std::shared_ptr<TaskModel> DownloadDatabase::getTaskById(int id) const {
     task->mimeType    = query.getColumn(idx++).getString();
     task->errorMsg    = query.getColumn(idx++).getString();
     task->saveDir     = query.getColumn(idx++).getString();
+    task->useProxy    = query.getColumn(idx++).getInt() != 0;
 
     return task;
 }
@@ -257,7 +283,8 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir
+                saveDir,
+                useProxy
             FROM downloads
             ORDER BY lastTry DESC
         )"
@@ -285,6 +312,7 @@ void DownloadDatabase::forEachTask(std::function<bool(std::shared_ptr<TaskModel>
         task->mimeType    = query.getColumn(idx++).getString();
         task->errorMsg    = query.getColumn(idx++).getString();
         task->saveDir     = query.getColumn(idx++).getString();
+        task->useProxy    = query.getColumn(idx++).getInt() != 0;
 
         // 如果回调返回 false，则提前停止遍历
         if (!callback(task)) {
@@ -324,7 +352,8 @@ std::vector<std::shared_ptr<TaskModel>> DownloadDatabase::getTasksRange(int offs
                 pageTitle,
                 mimeType,
                 errorMsg,
-                saveDir
+                saveDir,
+                useProxy
             FROM downloads
             ORDER BY lastTry DESC
             LIMIT ? OFFSET ?
@@ -357,6 +386,7 @@ std::vector<std::shared_ptr<TaskModel>> DownloadDatabase::getTasksRange(int offs
         task->mimeType    = query.getColumn(idx++).getString();
         task->errorMsg    = query.getColumn(idx++).getString();
         task->saveDir     = query.getColumn(idx++).getString();
+        task->useProxy    = query.getColumn(idx++).getInt() != 0;
 
         result.push_back(std::move(task));
     }

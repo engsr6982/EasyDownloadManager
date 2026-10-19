@@ -11,7 +11,7 @@
 namespace edm {
 
 std::string ProxyConfig::toProxyUrl() const {
-    if (isEnabled()) return {};
+    if (!isEnabled()) return {};
 
     std::ostringstream oss;
 
@@ -113,7 +113,7 @@ void EdmConfig::setUserAgent(QString const& userAgent) {
 ProxyConfig EdmConfig::getProxyConfig() const {
     ProxyConfig cfg{};
     cfg.enabled_  = settings_.value(kProxyEnabled, kDefaultProxyEnabled).toBool();
-    cfg.type_     = static_cast<ProxyType>(settings_.value(kProxyEnabled, static_cast<int>(kDefaultProxyType)).toInt());
+    cfg.type_     = static_cast<ProxyType>(settings_.value(kProxyType, static_cast<int>(kDefaultProxyType)).toInt());
     cfg.host_     = settings_.value(kProxyHost, kDefaultProxyHost).toString();
     cfg.port_     = settings_.value(kProxyPort, kDefaultProxyPort).toInt();
     cfg.user_     = settings_.value(kProxyUser, QString{}).toString();

@@ -12,6 +12,7 @@ namespace edm {
 class Dispatcher;
 class DownloadDatabase;
 struct TaskModel;
+struct TaskContext;
 
 namespace downloader {
 class DownloadState;
@@ -46,8 +47,11 @@ public:
     void shutdown();
 
     // ---- 任务操作 ----
-    /// 从配置构造 TaskModel、落库取有效 id、转 TaskContext 并派发。成功返回 model
-    /// 并发出 taskCreated；失败返回带完整信息的 Error（如 DB 异常原文）。
+    // 以下操作的返回值只表示"已受理"；真正的引擎调用在后台线程串行执行
+    // （引擎的 start/pause/cancel 会做网络探测、join worker、整文件校验，都是秒级阻塞），
+    // 失败通过 taskError / taskActionError 异步回传。
+    /// 从配置构造 TaskModel、落库取有效 id、转 TaskContext。返回 model 并同步发出
+    /// taskCreated；实际派发放到后台线程（元信息探测是网络请求），避免卡住 UI 线程。
     Expected<std::shared_ptr<TaskModel>> createTask(QString const& url, QString const& saveDir, bool useProxy);
 
     Expected<> pauseTask(int taskId);
@@ -56,6 +60,10 @@ public:
 
     /// 取消（best-effort）→ 可选删除磁盘文件 → 删除数据库记录 → 发出 taskRemoved。
     Expected<> deleteTask(int taskId, bool deleteFiles);
+
+    /// 重新下载：摘除旧任务、清除进度文件后从零再下一次（用于已完成/失败任务）。
+    /// 下载期间旧文件保持不动，校验通过后才覆盖同名文件。
+    Expected<> redownloadTask(int taskId);
 
     // ---- 供视图模型轮询 ----
     std::shared_ptr<downloader::DownloadState> taskState(int taskId) const;
@@ -72,6 +80,9 @@ signals:
     void taskFileNameChanged(int taskId);
     /// 引擎回传的错误（已持久化到数据库 errorMsg）。
     void taskError(int taskId, QString const& message);
+    /// 任务进入终态（完成/失败/取消），供托盘状态通知等消费。
+    /// state 用 int 传，避免 TaskState 未注册元类型导致跨线程队列连接失败。
+    void taskFinished(int taskId, int state, QString const& fileName, QString const& errorMsg);
 };
 
 } // namespace edm

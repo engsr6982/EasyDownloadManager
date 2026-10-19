@@ -13,17 +13,20 @@ struct TaskContext;
 namespace edm ::downloader {
 
 struct DownloadRange;
+struct WorkerSlot;
 
 class DownloadWorker final {
     std::shared_ptr<TaskContext>       config_;
     std::string                        outFilePath_;
     std::shared_ptr<std::atomic<bool>> isTaskRunning_; // 用于接收上层的暂停/取消指令
+    WorkerSlot*                        slot_{nullptr}; // 本线程的状态槽位（可为空）
 
 public:
     DownloadWorker(
         std::shared_ptr<TaskContext>       config,
         std::string                        outFilePath,
-        std::shared_ptr<std::atomic<bool>> isTaskRunning
+        std::shared_ptr<std::atomic<bool>> isTaskRunning,
+        WorkerSlot*                        slot = nullptr
     );
     ~DownloadWorker();
 

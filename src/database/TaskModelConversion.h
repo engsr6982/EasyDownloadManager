@@ -3,6 +3,7 @@
 #include "Global.h"
 #include "TaskModel.h"
 #include "downloader/DownloadTypes.h"
+#include "utils/Utils.h"
 
 #include <memory>
 #include <string>
@@ -95,16 +96,13 @@ inline void applyContextToModel(TaskModel& model, TaskContext const& cfg) {
                 }
             }
         }
-
-        // 最终 URL (重定向后)
-        if (!meta.finalUrl.empty()) {
-            model.pageUrl = meta.finalUrl;
-        }
     }
 
     // cfg.fileName 由引擎解析（优先 Content-Disposition，其次 URL），具有最高优先级
     if (!cfg.fileName.empty()) {
         model.fileName = cfg.fileName;
+        // 分类跟随最终文件名解析
+        model.category = utils::resolveFileCategory(model.fileName);
     }
 }
 

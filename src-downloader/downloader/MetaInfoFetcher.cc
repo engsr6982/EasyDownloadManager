@@ -4,13 +4,41 @@
 #include "Global.h"
 #include "utils/TaskLogger.h"
 
+#include <chrono>
+
 namespace edm ::downloader {
 
 namespace {
-size_t discardCallback(char*, size_t size, size_t nmemb, void*) { return size * nmemb; }
+
+/// 探测阶段允许多丢弃的响应体上限。服务器若无视 Range: 0-0 直接返回 200，
+/// 不设上限就会把整个文件白白下载一遍（大文件能让"新建任务"卡住几分钟）。
+constexpr int64_t kMaxDiscardBytes = 64 * 1024;
+
+struct DiscardCtx {
+    std::atomic<bool> const* abortFlag{nullptr}; // 为 false 表示请求暂停/取消
+    int64_t                  received{0};
+};
+
+size_t discardCallback(char* /*ptr*/, size_t size, size_t nmemb, void* userdata) {
+    auto* ctx = static_cast<DiscardCtx*>(userdata);
+
+    // 上层请求暂停/取消 → 立刻中断探测
+    if (ctx->abortFlag && !ctx->abortFlag->load(std::memory_order_relaxed)) return 0;
+
+    ctx->received += static_cast<int64_t>(size * nmemb);
+    // 已经拿到响应头，body 没必要继续丢；返回 0 让 curl 以写错误收尾，
+    // 调用方凭响应码继续解析元信息。
+    if (ctx->received > kMaxDiscardBytes) return 0;
+
+    return size * nmemb;
+}
+
 } // namespace
 
-Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskContext> const& configure) {
+Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(
+    std::shared_ptr<TaskContext> const&       configure,
+    std::shared_ptr<std::atomic<bool>> const& abortFlag
+) {
     if (!configure) {
         EDM_LOG_ERROR(kInvalidTaskID, "MetaInfoFetcher: configure is null");
         return makeStringError("configure is null");
@@ -33,14 +61,34 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskContext>
 
     curl.setOpt(CURLOPT_HEADER, 1L);
     curl.setOpt(CURLOPT_RANGE, "0-0");
+    DiscardCtx discardCtx{abortFlag ? abortFlag.get() : nullptr, 0};
     curl.setOpt(CURLOPT_WRITEFUNCTION, discardCallback);
+    curl.setOpt(CURLOPT_WRITEDATA, &discardCtx);
+    if (abortFlag) {
+        // 连接阶段也能被暂停/取消打断（不必等连接超时）
+        curl.setAbortFlag(abortFlag.get());
+    }
 
     EDM_LOG_TRACE(configure->id, "MetaInfoFetcher: performing HEAD-like request with Range: 0-0");
 
-    if (auto res = curl.perform(); !res) {
-        EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: CURL perform failed: {}", res.error().message());
-        return forwardError(res.error());
+    auto const startedAt = std::chrono::steady_clock::now();
+    auto       performRes = curl.perform();
+
+    // 探测阶段的 body 是丢弃的，写回调主动中断（服务器不支持 Range 时）会以
+    // CURLE_WRITE_ERROR 收尾。只要拿到了响应码，就仍可正常解析元信息。
+    long responseCode = 0;
+    auto codeRes      = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode);
+    if (!performRes && !(codeRes && responseCode > 0)) {
+        EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: CURL perform failed: {}", performRes.error().message());
+        return forwardError(performRes.error());
     }
+    if (abortFlag && !abortFlag->load(std::memory_order_relaxed)) {
+        EDM_LOG_INFO(configure->id, "MetaInfoFetcher: probe aborted by pause/cancel request");
+        return makeStringError("aborted by pause/cancel");
+    }
+    auto const elapsedMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+    EDM_LOG_INFO(configure->id, "MetaInfoFetcher: probe finished in {} ms", elapsedMs);
 
     FetchedMetaInfo info;
 
@@ -54,15 +102,6 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(std::shared_ptr<TaskContext>
     EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: effective URL = {}", info.finalUrl);
 
     // 是否支持 Range 及真实大小
-    long responseCode = 0;
-    if (auto responseCodeRes = curl.getInfo(CURLINFO_RESPONSE_CODE, &responseCode); !responseCodeRes) {
-        EDM_LOG_ERROR(
-            configure->id,
-            "MetaInfoFetcher: failed to get response code: {}",
-            responseCodeRes.error().message()
-        );
-        return forwardError(responseCodeRes.error());
-    }
     EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: HTTP response code = {}", responseCode);
 
     if (responseCode >= 400) {

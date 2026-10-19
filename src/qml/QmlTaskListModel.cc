@@ -91,7 +91,9 @@ QVariant QmlTaskListModel::data(QModelIndex const& index, int role) const {
         return formatFileSize(m->fileSize);
     case ProgressValueRole: {
         if (!state) {
-            return computeProgress(0, m->fileSize);
+            // 重启后没有实时状态：已完成的任务直接显示满进度，其余留空
+            // （已下载字节数没有持久化，无法还原中间进度）
+            return m->state == TaskState::Finished ? computeProgress(1, 1) : computeProgress(0, m->fileSize);
         }
         int64_t downloaded = state->downloadedBytes();
         int64_t total      = state->totalBytes();
@@ -170,6 +172,8 @@ void QmlTaskListModel::reloadFromDatabase() {
     if (totalCount_ > 0) {
         auto batch = db->getTasksRange(0, kBatchSize);
         for (auto& task : batch) {
+            // 崩溃遗留的 Running 实际没有在下载，先归位为 Paused，避免 UI 谎报"下载中"
+            normalizeCrashedTaskModel(task);
             rows_.push_back(Row{std::move(task), nullptr});
             idToRow_[rows_.back().model->id] = rows_.size() - 1;
         }
@@ -199,6 +203,7 @@ void QmlTaskListModel::loadNextBatch() {
     int const lastRow  = firstRow + static_cast<int>(batch.size()) - 1;
     beginInsertRows({}, firstRow, lastRow);
     for (auto& task : batch) {
+        normalizeCrashedTaskModel(task);
         rows_.push_back(Row{std::move(task), nullptr});
         idToRow_[rows_.back().model->id] = rows_.size() - 1;
     }
@@ -286,22 +291,29 @@ void QmlTaskListModel::refreshRow(int row) {
     int  id = rows_[row].model->id;
     auto it = details_.find(id);
     if (it != details_.end() && it->second) {
-        it->second->setFileInfo(
-            rows_[row].model->id,
-            QString::fromStdString(rows_[row].model->fileName),
-            formatFileSize(rows_[row].model->fileSize),
-            QString::fromStdString(rows_[row].model->url),
-            QString::fromStdString(rows_[row].model->saveDir),
-            QString::fromStdString(rows_[row].model->pageUrl),
-            formatTimestamp(rows_[row].model->firstTry),
-            formatTimestamp(rows_[row].model->lastTry),
-            QString::fromStdString(std::string(magic_enum::enum_name(rows_[row].model->category))),
-            QString::fromStdString(rows_[row].model->mimeType),
-            QString::fromStdString(rows_[row].model->errorMsg),
-            rows_[row].model->resumable == Resumable::Yes
-        );
-        it->second->setLiveState(rows_[row].liveState.get());
+        updateDetailFromRow(it->second.data(), row);
     }
+}
+
+void QmlTaskListModel::updateDetailFromRow(QmlTaskDetail* detail, int row) {
+    if (!detail || row < 0 || row >= static_cast<int>(rows_.size())) return;
+    auto const& m = rows_[row].model;
+    detail->setFileInfo(
+        m->id,
+        QString::fromStdString(m->fileName),
+        formatFileSize(m->fileSize),
+        QString::fromStdString(m->url),
+        QString::fromStdString(m->saveDir),
+        QString::fromStdString(m->pageUrl),
+        formatTimestamp(m->firstTry),
+        formatTimestamp(m->lastTry),
+        QString::fromStdString(std::string(magic_enum::enum_name(m->category))),
+        QString::fromStdString(m->mimeType),
+        QString::fromStdString(m->errorMsg),
+        m->resumable == Resumable::Yes
+    );
+    detail->setThreadCount(m->threadCount);
+    detail->setLiveState(rows_[row].liveState.get(), m->state);
 }
 
 // ---------- Refresh tick ----------
@@ -369,6 +381,16 @@ bool QmlTaskListModel::cancelTask(int taskId) {
     return true;
 }
 
+bool QmlTaskListModel::redownloadTask(int taskId) {
+    if (!service_) return false;
+    auto r = service_->redownloadTask(taskId);
+    if (!r) {
+        emit taskActionError(QStringLiteral("redownload"), taskId, QString::fromStdString(r.error().message()));
+        return false;
+    }
+    return true;
+}
+
 bool QmlTaskListModel::deleteTask(int taskId, bool deleteFiles) {
     if (!service_) return false;
 
@@ -386,29 +408,16 @@ QmlTaskDetail* QmlTaskListModel::getTaskDetail(int taskId) {
     int row = findRow(taskId);
     if (row < 0) return nullptr;
 
-    auto it = details_.find(taskId);
+    auto        it     = details_.find(taskId);
+    QmlTaskDetail* detail = nullptr;
     if (it != details_.end() && it->second) {
-        return it->second.data();
+        detail = it->second.data();
+    } else {
+        detail               = new QmlTaskDetail(this);
+        details_[taskId]     = QPointer<QmlTaskDetail>(detail);
     }
-
-    auto        detail = new QmlTaskDetail(this);
-    auto const& r      = rows_[row];
-    detail->setFileInfo(
-        r.model->id,
-        QString::fromStdString(r.model->fileName),
-        formatFileSize(r.model->fileSize),
-        QString::fromStdString(r.model->url),
-        QString::fromStdString(r.model->saveDir),
-        QString::fromStdString(r.model->pageUrl),
-        formatTimestamp(r.model->firstTry),
-        formatTimestamp(r.model->lastTry),
-        QString::fromStdString(std::string(magic_enum::enum_name(r.model->category))),
-        QString::fromStdString(r.model->mimeType),
-        QString::fromStdString(r.model->errorMsg),
-        r.model->resumable == Resumable::Yes
-    );
-    detail->setLiveState(r.liveState.get());
-    details_[taskId] = QPointer<QmlTaskDetail>(detail);
+    // 打开时总是用当前行刷新，避免展示旧数据（新建任务后立刻打开的场景）
+    updateDetailFromRow(detail, row);
     return detail;
 }
 
@@ -434,30 +443,57 @@ void QmlTaskListModel::onServiceTaskRemoved(int taskId) {
 void QmlTaskListModel::onServiceTaskStateChanged(int taskId) {
     int row = findRow(taskId);
     if (row < 0) return;
-    // 状态变化后重新挂接实时状态并刷新该行，让 UI 立即反映终态
+    // 状态变化时引擎往往同时刷新了元信息（文件大小/MIME/文件名），必须重读数据库行，
+    // 否则详情抽屉会一直显示行缓存里的旧值（例如文件体积始终为 0 B）。
+    if (!reloadRowFromService(taskId)) {
+        removeRow(row); // 数据库已无该任务（如异步创建失败被清理）
+    }
+}
+
+void QmlTaskListModel::normalizeCrashedTaskModel(std::shared_ptr<TaskModel> const& model) {
+    // Running / Preparing 都是"上次退出时还在进行"的残留状态，实际并没有在下载
+    if (!model || (model->state != TaskState::Running && model->state != TaskState::Preparing)) return;
+    // 若调度器中仍存在该任务的实时状态，说明确实在下载，保持不变
+    if (service_ && service_->taskState(model->id)) return;
+
+    model->state = TaskState::Paused;
+    auto* db = service_ ? service_->database() : nullptr;
+    if (db) {
+        // 与 DB 保持一致，避免下次启动再次判定为 Running
+        try {
+            db->insertTask(model);
+        } catch (std::exception const& e) {
+            qWarning() << "QmlTaskListModel: normalize crashed task" << model->id << "failed:" << e.what();
+        }
+    }
+}
+
+bool QmlTaskListModel::reloadRowFromService(int taskId) {
+    auto* db = service_ ? service_->database() : nullptr;
+    if (!db) return false;
+    int row = findRow(taskId);
+    if (row < 0) return false;
+    auto model = db->getTaskById(taskId);
+    if (!model) return false; // 数据库已无此行（例如创建失败被清理）
+    rows_[row].model = std::move(model);
     if (auto s = service_->taskState(taskId)) {
         rows_[row].liveState = s;
     }
     refreshRow(row);
+    return true;
 }
 
-void QmlTaskListModel::reloadRowFromService(int taskId) {
-    auto* db = service_ ? service_->database() : nullptr;
-    if (!db) return;
-    int row = findRow(taskId);
-    if (row < 0) return;
-    if (auto model = db->getTaskById(taskId)) {
-        rows_[row].model = std::move(model);
-        if (auto s = service_->taskState(taskId)) {
-            rows_[row].liveState = s;
-        }
+void QmlTaskListModel::onServiceTaskError(int taskId, QString const& message) {
+    // 引擎侧的异步失败（元信息探测失败、重试耗尽等）也要让用户看见，
+    // 否则点了"继续/重新下载"没反应会无从判断。
+    emit taskActionError(QStringLiteral("task"), taskId, message);
+
+    // errorMsg 已由服务写入数据库，重读该行让 UI 展示最新错误；
+    // 若数据库已无该任务（如异步创建失败被清理），则移除视图行
+    if (!reloadRowFromService(taskId)) {
+        int row = findRow(taskId);
+        if (row >= 0) removeRow(row);
     }
-    refreshRow(row);
-}
-
-void QmlTaskListModel::onServiceTaskError(int taskId, QString const& /*message*/) {
-    // errorMsg 已由服务写入数据库，重读该行让 UI 展示最新错误
-    reloadRowFromService(taskId);
 }
 
 void QmlTaskListModel::onServiceTaskFileNameChanged(int taskId) {

@@ -4,6 +4,7 @@ import QtQuick.Controls
 import "components"
 import "drawer"
 import "dialog"
+import "fluent"
 
 import edm.qml.ui 1.0
 
@@ -13,7 +14,11 @@ Window {
     height: 500
     visible: true
     title: Constants.projectName
-    flags: Qt.Window | Qt.FramelessWindowHint // 开启无标题栏窗口
+    // 注意：显式赋值 flags 会覆盖默认的窗口提示位。必须保留 MinimizeButtonHint，
+    // 否则 Windows 不会给窗口加 WS_MINIMIZEBOX，点击任务栏图标就无法最小化。
+    // 注意：显式赋值 flags 会覆盖默认的窗口提示位。必须保留 MinimizeButtonHint/SystemMenuHint，
+    // 否则 Windows 不会给窗口加 WS_MINIMIZEBOX/WS_SYSMENU，点击任务栏图标就无法最小化。
+    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowMinimizeButtonHint | Qt.WindowSystemMenuHint
 
     color: Constants.windowBase
 
@@ -189,6 +194,57 @@ Window {
                     source: Qt.resolvedUrl("./views/TaskListView.qml") // 首次加载使用第一屏视图
                 }
             }
+        }
+    }
+
+    // 全局操作失败提示条：任务操作已改为后台线程执行，失败必须让用户看见，不能再静默
+    Rectangle {
+        id: errorToast
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 24
+        width: Math.min(parent.width - 48, errorText.implicitWidth + 32)
+        height: errorText.implicitHeight + 20
+        radius: Constants.radiusCard
+        color: Constants.bgContent
+        border.color: Constants.danger
+        border.width: 1
+        visible: false
+        z: 200
+
+        property string message: ""
+
+        function show(msg) {
+            if (!msg || msg === "")
+                return;
+            message = msg;
+            visible = true;
+            errorToastTimer.restart();
+        }
+
+        FluText {
+            id: errorText
+            anchors.centerIn: parent
+            width: parent.width - 24
+            color: Constants.danger
+            text: errorToast.message
+            wrapMode: Text.WrapAnywhere
+        }
+
+        Timer {
+            id: errorToastTimer
+            interval: 5000
+            onTriggered: errorToast.visible = false
+        }
+    }
+
+    Connections {
+        target: TaskListModel
+        function onTaskActionError(action, taskId, message) {
+            errorToast.show(message);
+        }
+        function onCreateTaskError(url, message) {
+            errorToast.show(message);
         }
     }
 

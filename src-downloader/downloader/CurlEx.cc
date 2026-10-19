@@ -7,6 +7,14 @@
 
 namespace edm::downloader {
 
+namespace {
+// 传输阻塞上界：没有这两个限制时，服务器一旦卡住不回数据，写回调就不会被调用，
+// 暂停/取消的 joinWorkers() 将无限期挂住调用线程。参见 DownloadTask::pause()。
+constexpr long kConnectTimeoutSec = 15;  // 建连超时
+constexpr long kLowSpeedLimit     = 1;   // B/s，低于此速率…
+constexpr long kLowSpeedTimeSec   = 30;  // …持续该秒数即中断
+} // namespace
+
 
 void CurlEx::cleanup() {
     if (curl_) curl_easy_cleanup(curl_);
@@ -53,6 +61,19 @@ CurlEx& CurlEx::append(std::string header) {
     return *this;
 }
 
+CurlEx& CurlEx::setAbortFlag(std::atomic<bool> const* flag) {
+    // libcurl 进度回调：返回非 0 立即中止本次传输（连接阶段也会被调用）
+    static auto const kXferInfo = [](void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
+        auto const* abortFlag = static_cast<std::atomic<bool> const*>(clientp);
+        return (abortFlag && !abortFlag->load(std::memory_order_relaxed)) ? 1 : 0;
+    };
+
+    setOpt(CURLOPT_NOPROGRESS, 0L);
+    setOpt(CURLOPT_XFERINFOFUNCTION, +kXferInfo);
+    setOpt(CURLOPT_XFERINFODATA, const_cast<std::atomic<bool>*>(flag));
+    return *this;
+}
+
 Expected<> CurlEx::perform() {
     if (!status_) return forwardError(status_.error());
     if (auto code = curl_easy_perform(curl_); code != CURLE_OK) {
@@ -80,7 +101,10 @@ Expected<downloader::CurlEx> CurlEx::fromContext(std::shared_ptr<TaskContext> co
         .setOpt(CURLOPT_FOLLOWLOCATION, 1L)    // 跟随重定向
         .setOpt(CURLOPT_NOSIGNAL, 1L)
         .setOpt(CURLOPT_FAILONERROR, 1L)
-        .setOpt(CURLOPT_NOPROXY, "localhost,127.0.0.1,::1"); // 本地回环地址忽略代理
+        .setOpt(CURLOPT_NOPROXY, "localhost,127.0.0.1,::1") // 本地回环地址忽略代理
+        .setOpt(CURLOPT_CONNECTTIMEOUT, kConnectTimeoutSec)
+        .setOpt(CURLOPT_LOW_SPEED_LIMIT, kLowSpeedLimit)
+        .setOpt(CURLOPT_LOW_SPEED_TIME, kLowSpeedTimeSec);
 
     curl.setOpt(CURLOPT_USERAGENT, cfg->userAgent.c_str()); // 设置 User-Agent
 

@@ -1,7 +1,9 @@
 #include "EdmApplication.h"
 
 #include "AppService.h"
+#include "EdmConfig.h"
 #include "FramelessShadowFilter.h"
+#include "Global.h"
 #include "qml/QmlController.h"
 #include "qml/QmlSettings.h"
 #include "qml/QmlTaskListModel.h"
@@ -63,8 +65,14 @@ struct EdmApplication::Impl {
         }
 
         // 保留 Qt 已有的窗口样式，只添加可提供原生框架的样式。
+        //
+        // 关键：Qt 在 FramelessWindowHint 下把窗口建成 WS_POPUP，而 DWM 只对
+        // "普通顶层窗口"播放最小化/还原动画，弹窗式窗口是直接消失的。
+        // 去掉 WS_POPUP、换成 WS_OVERLAPPEDWINDOW，外观不受影响——
+        // 非客户区由 FramelessShadowFilter 的 WM_NCCALCSIZE 处理为 0，标题栏不会画出来。
         LONG_PTR style  = GetWindowLongPtr(hwnd, GWL_STYLE);
-        style          |= WS_THICKFRAME;
+        style          &= ~static_cast<LONG_PTR>(WS_POPUP);
+        style          |= WS_OVERLAPPEDWINDOW;
         SetWindowLongPtr(hwnd, GWL_STYLE, style);
 
         // 扩展 DWM 框架到客户区。
@@ -174,6 +182,53 @@ struct EdmApplication::Impl {
                 }
             }
         );
+
+        connectStatusNotifications();
+    }
+
+    /// 任务进入终态时走系统托盘消息通知（受设置开关控制）。
+    /// 以 trayIcon_ 作为连接上下文：托盘销毁后连接自动断开。
+    void connectStatusNotifications() {
+        QObject::connect(
+            appService_.get(),
+            &AppService::taskFinished,
+            trayIcon_.get(),
+            [this](int /*taskId*/, int state, QString const& fileName, QString const& errorMsg) {
+                if (!trayIcon_) return;
+                if (!EdmConfig::getInstance().canShowStatusNotification()) return;
+
+                if (!QSystemTrayIcon::supportsMessages()) {
+                    qDebug() << "系统不支持托盘通知，跳过状态通知";
+                    return;
+                }
+
+                QString title;
+                QString body;
+                auto    icon = QSystemTrayIcon::Information;
+                switch (static_cast<TaskState>(state)) {
+                case TaskState::Finished:
+                    title = QStringLiteral("下载完成");
+                    body  = fileName;
+                    break;
+                case TaskState::Failed:
+                    title = QStringLiteral("下载失败");
+                    body  = errorMsg.isEmpty() ? fileName : (fileName + QChar('\n') + errorMsg);
+                    icon  = QSystemTrayIcon::Critical;
+                    break;
+                case TaskState::Canceled:
+                    title = QStringLiteral("已取消");
+                    body  = fileName;
+                    icon  = QSystemTrayIcon::Warning;
+                    break;
+                default:
+                    return;
+                }
+                trayIcon_->showMessage(title, body, icon, 5000);
+            }
+        );
+
+        // 点击通知回到主窗口
+        QObject::connect(trayIcon_.get(), &QSystemTrayIcon::messageClicked, [this]() { _showMainWindow(); });
     }
 
     void shutdown() {

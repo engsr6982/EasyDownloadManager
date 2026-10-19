@@ -69,16 +69,21 @@ inline std::string formatTime(
     bool                                  localTime = true,
     std::string_view                      fmt_str   = "%Y-%m-%d %H:%M:%S"
 ) {
+    // 降到秒精度：fmt 是按 duration 的"周期"决定要不要补小数秒的，
+    // 只把值截断是不够的——system_clock 在 MSVC 上周期是 100ns，
+    // 直接格式化 %S 会输出 "17.0000000"。这里换成秒周期的 time_point。
+    auto const secs = std::chrono::time_point_cast<std::chrono::seconds>(time);
+
     std::string format_pattern;
     format_pattern.reserve(fmt_str.size() + 3);
     format_pattern.append("{:").append(fmt_str).append("}");
 
     if (localTime) {
 #if defined(__cpp_lib_chrono) && __cpp_lib_chrono >= 201907L
-        std::chrono::zoned_time zt{std::chrono::current_zone(), time};
+        std::chrono::zoned_time zt{std::chrono::current_zone(), secs};
         return fmt::format(fmt::runtime(format_pattern), zt.get_local_time());
 #else
-        std::time_t t = std::chrono::system_clock::to_time_t(time);
+        std::time_t t = std::chrono::system_clock::to_time_t(secs);
         std::tm     tm_buf{};
 #if defined(_WIN32)
         localtime_s(&tm_buf, &t);
@@ -88,7 +93,7 @@ inline std::string formatTime(
         return fmt::format(fmt::runtime(format_pattern), tm_buf);
 #endif
     } else {
-        return fmt::format(fmt::runtime(format_pattern), time);
+        return fmt::format(fmt::runtime(format_pattern), secs);
     }
 }
 

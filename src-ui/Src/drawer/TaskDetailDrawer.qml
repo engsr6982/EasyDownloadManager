@@ -51,12 +51,8 @@ Item {
         height: root.parent && root.parent.parent ? root.parent.parent.height : 0
 
         enabled: root.opened // 仅在抽屉打开时激活，平时完全处于停用状态，避免不必要的性能消耗
-        propagateComposedEvents: true
-
-        onPressed: mouse => {
-            root.close();
-            mouse.accepted = false; // 拒绝该事件，让点击无损向下传递并直接触发底层按钮或项
-        }
+        // 打开后拦截遮罩区域的点击：只负责关闭抽屉，不再让事件穿透到下方控件
+        onClicked: root.close()
     }
 
     // 左侧渐变阴影（仅在左边缘外侧呈现）
@@ -144,18 +140,19 @@ Item {
                     FluIconButton {
                         text: {
                             var s = taskDetail ? taskDetail.statusStr : "N/A";
-                            if (s === "Running")  return "\uf5a2";
+                            if (s === "Running" || s === "Preparing")  return "\uf5a2";
                             return "\uf606";
                         }
                         enabled: {
                             var s = taskDetail ? taskDetail.statusStr : "N/A";
-                            return s === "Running" || s === "Paused" || s === "Pending" || s === "Failed";
+                            return s === "Running" || s === "Paused" || s === "Pending" || s === "Failed"
+                                || s === "Preparing";
                         }
                         onClicked: {
                             if (currentTaskId <= 0) return;
                             var id = currentTaskId;
                             var s = taskDetail ? taskDetail.statusStr : "N/A";
-                            if (s === "Running") {
+                            if (s === "Running" || s === "Preparing") {
                                 TaskListModel.pauseTask(id);
                             } else {
                                 TaskListModel.resumeTask(id);
@@ -181,10 +178,12 @@ Item {
                 Layout.fillHeight: true
                 clip: true
 
+                // 内容固定高度容器，不需要滚动条；隐藏两个方向的滚动条
                 ScrollBar.vertical: ScrollBar {
-                    parent: contentScrollView
                     policy: ScrollBar.AlwaysOff
-                    visible: false
+                }
+                ScrollBar.horizontal: ScrollBar {
+                    policy: ScrollBar.AlwaysOff
                 }
 
                 // 真正的内部扁平容器
@@ -296,48 +295,74 @@ Item {
                                     color: Constants.borderSubtle
                                 }
 
-                                ListView {
-                                    id: threadListView
+                                Item {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
-                                    clip: true
 
-                                    ScrollBar.vertical: ScrollBar {
-                                        policy: ScrollBar.AlwaysOff
-                                        visible: false
+                                    ListView {
+                                        id: threadListView
+                                        anchors.fill: parent
+                                        clip: true
+                                        visible: taskDetail && taskDetail.rangesModel.active
+
+                                        // ListView 不提供 horizontal 附属滚动条，只隐藏垂直方向
+                                        ScrollBar.vertical: ScrollBar {
+                                            policy: ScrollBar.AlwaysOff
+                                        }
+
+                                        model: taskDetail ? taskDetail.rangesModel : null
+
+                                        delegate: Rectangle {
+                                            id: threadStateElement
+                                            width: threadListView.width
+                                            height: 24
+                                            radius: Constants.radiusCard
+
+                                            MouseArea {
+                                                id: threadStateElementMouseArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                            }
+
+                                            color: threadStateElementMouseArea.containsMouse ? Constants.standardHover : "transparent"
+
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                spacing: 6
+                                                anchors.leftMargin: 6
+                                                anchors.rightMargin: 6
+
+                                                FluText {
+                                                    text: "# " + (rangeIndex !== undefined ? rangeIndex : (index + 1))
+                                                    Layout.preferredWidth: 32
+                                                }
+                                                FluText {
+                                                    text: rangeStatus !== undefined ? rangeStatus : ""
+                                                    Layout.preferredWidth: 48
+                                                }
+                                                // 该线程的实时下载速率
+                                                FluText {
+                                                    text: rangeSpeedStr !== undefined ? rangeSpeedStr : "—"
+                                                    color: Constants.textSecondary
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+                                                // 重试时显示第几次尝试
+                                                FluText {
+                                                    visible: rangeStatus === "重试中"
+                                                    text: qsTr("第 %1 次").arg(rangeAttempts + 1)
+                                                    color: Constants.warning
+                                                }
+                                            }
+                                        }
                                     }
 
-                                    model: taskDetail ? taskDetail.rangesModel : null
-
-                                    delegate: Rectangle {
-                                        id: threadStateElement
-                                        width: threadListView.width
-                                        height: 24
-                                        radius: Constants.radiusCard
-
-                                        MouseArea {
-                                            id: threadStateElementMouseArea
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                        }
-
-                                        color: threadStateElementMouseArea.containsMouse ? Constants.standardHover : "transparent"
-
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            spacing: 0
-                                            anchors.leftMargin: 6
-                                            anchors.rightMargin: 6
-
-                                            FluText {
-                                                text: "# " + (rangeIndex !== undefined ? rangeIndex : (index + 1))
-                                                Layout.preferredWidth: 42
-                                            }
-                                            FluText {
-                                                text: rangeStatus !== undefined ? rangeStatus : ""
-                                                Layout.fillWidth: true
-                                            }
-                                        }
+                                    // 未开始时显示居中的 N/A 占位符
+                                    FluText {
+                                        text: qsTr("N/A")
+                                        color: "#808080"
+                                        anchors.centerIn: parent
+                                        visible: !taskDetail || !taskDetail.rangesModel.active
                                     }
                                 }
                             }
@@ -369,126 +394,183 @@ Item {
                             border.width: 1
                             radius: Constants.radiusCard
 
-                            GridLayout {
+                            ColumnLayout {
                                 id: infoGrid
                                 anchors.fill: parent
                                 anchors.margins: 12
-                                columns: 2
-                                rowSpacing: 12
-                                columnSpacing: 8
+                                spacing: 10
 
-                                FluText {
-                                    text: qsTr("文件名：")
-                                    color: "#808080"
-                                    Layout.alignment: Qt.AlignTop
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.fileName : "N/A"
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    wrapMode: Text.WrapAnywhere
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("文件名：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                        Layout.alignment: Qt.AlignTop
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.fileName : "N/A"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WrapAnywhere
+                                    }
                                 }
 
-                                FluText {
-                                    text: qsTr("文件体积：")
-                                    color: "#808080"
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.fileSizeStr : "N/A"
-                                }
-
-                                FluText {
-                                    text: qsTr("存储路径：")
-                                    color: "#808080"
-                                    Layout.alignment: Qt.AlignTop
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.saveDir : "N/A"
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    wrapMode: Text.WrapAnywhere
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("文件体积：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.fileSizeStr : "N/A"
+                                        Layout.fillWidth: true
+                                    }
                                 }
 
-                                FluText {
-                                    text: qsTr("首次操作：")
-                                    color: "#808080"
-                                }
-                                FluText {
-                                    text: taskDetail && taskDetail.firstTryStr !== "" ? taskDetail.firstTryStr : "N/A"
-                                }
-
-                                FluText {
-                                    text: qsTr("最近操作：")
-                                    color: "#808080"
-                                }
-                                FluText {
-                                    text: taskDetail && taskDetail.lastTryStr !== "" ? taskDetail.lastTryStr : "N/A"
-                                }
-
-                                FluText {
-                                    text: qsTr("下载链接：")
-                                    color: "#808080"
-                                    Layout.alignment: Qt.AlignTop
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.urlStr : "N/A"
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    wrapMode: Text.WrapAnywhere
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 3
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("存储路径：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                        Layout.alignment: Qt.AlignTop
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.saveDir : "N/A"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WrapAnywhere
+                                    }
                                 }
 
-                                FluText {
-                                    text: qsTr("分类：")
-                                    color: "#808080"
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.categoryStr : "N/A"
-                                }
-
-                                FluText {
-                                    text: qsTr("MIME 类型：")
-                                    color: "#808080"
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.mimeType : "N/A"
-                                    elide: Text.ElideRight
+                                RowLayout {
                                     Layout.fillWidth: true
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("首次操作：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                    }
+                                    FluText {
+                                        text: taskDetail && taskDetail.firstTryStr !== "" ? taskDetail.firstTryStr : "N/A"
+                                        Layout.fillWidth: true
+                                    }
                                 }
 
-                                FluText {
-                                    text: qsTr("来源页面：")
-                                    color: "#808080"
-                                    Layout.alignment: Qt.AlignTop
-                                }
-                                FluText {
-                                    text: taskDetail ? taskDetail.referrer : "N/A"
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    wrapMode: Text.WrapAnywhere
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 2
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("最近操作：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                    }
+                                    FluText {
+                                        text: taskDetail && taskDetail.lastTryStr !== "" ? taskDetail.lastTryStr : "N/A"
+                                        Layout.fillWidth: true
+                                    }
                                 }
 
-                                FluText {
-                                    text: qsTr("断点续传：")
-                                    color: "#808080"
-                                }
-                                FluText {
-                                    text: taskDetail ? (taskDetail.resumable ? qsTr("支持") : qsTr("不支持")) : qsTr("未知")
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("下载链接：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                        Layout.alignment: Qt.AlignTop
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.urlStr : "N/A"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WrapAnywhere
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 3
+                                    }
                                 }
 
-                                FluText {
-                                    text: qsTr("错误信息：")
-                                    color: taskDetail && taskDetail.errorMsg !== "" ? Constants.danger : "#808080"
-                                    Layout.alignment: Qt.AlignTop
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("分类：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.categoryStr : "N/A"
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("MIME 类型：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.mimeType : "N/A"
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("来源页面：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                        Layout.alignment: Qt.AlignTop
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.referrer : "N/A"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WrapAnywhere
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 2
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    FluText {
+                                        text: qsTr("断点续传：")
+                                        color: "#808080"
+                                        Layout.preferredWidth: 76
+                                    }
+                                    FluText {
+                                        text: taskDetail ? (taskDetail.resumable ? qsTr("支持") : qsTr("不支持")) : qsTr("未知")
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
                                     visible: taskDetail && taskDetail.errorMsg !== ""
+                                    FluText {
+                                        text: qsTr("错误信息：")
+                                        color: Constants.danger
+                                        Layout.preferredWidth: 76
+                                        Layout.alignment: Qt.AlignTop
+                                    }
+                                    FluText {
+                                        text: taskDetail ? taskDetail.errorMsg : ""
+                                        color: Constants.danger
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WrapAnywhere
+                                    }
                                 }
-                                FluText {
-                                    text: taskDetail ? taskDetail.errorMsg : ""
-                                    color: Constants.danger
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WrapAnywhere
-                                    visible: taskDetail && taskDetail.errorMsg !== ""
-                                }
-}
+                            }
                         }
                     }
                 }

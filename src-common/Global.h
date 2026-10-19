@@ -17,12 +17,13 @@ enum class Category {
 };
 
 enum class TaskState {
-    Pending  = 0, // 等待开始
-    Running  = 1, // 正在运行
-    Paused   = 2, // 暂停
-    Canceled = 3, // 取消
-    Finished = 4, // 完成
-    Failed   = 5, // 失败(异常)
+    Pending   = 0, // 等待开始
+    Running   = 1, // 正在运行
+    Paused    = 2, // 暂停
+    Canceled  = 3, // 取消
+    Finished  = 4, // 完成
+    Failed    = 5, // 失败(异常)
+    Preparing = 6, // 准备中（探测文件元信息 / 预分配磁盘，尚未开始传输）
 };
 
 enum class Resumable {

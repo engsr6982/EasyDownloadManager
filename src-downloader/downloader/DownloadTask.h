@@ -31,11 +31,16 @@ private:
     std::string                        metaFilePath_;
     std::shared_ptr<std::atomic<bool>> isRunningFlag_;
     std::atomic<bool>                  cancelRequested_{false};
+    /// 准备阶段（元信息探测）请求中止：由 pause()/cancel() 置位。
+    /// 探测过程不持有 mutex_，所以这条指令必须走原子量，不能再抢锁。
+    std::atomic<bool>                  prepareAbort_{false};
+    /// 是否正处于 start() 的准备阶段（网络探测 + 磁盘预分配，未持锁）
+    std::atomic<bool>                  preparing_{false};
     std::atomic<size_t>                nextRangeIndex_{0};
 
     std::atomic<int>         activeWorkers_{0};
-    int64_t                  lastDownloadedBytes_{0};
-    double                   currentSpeed_{0.0};
+    std::atomic<int64_t>     lastDownloadedBytes_{0};
+    std::atomic<double>      currentSpeed_{0.0};
     std::vector<std::thread> workers_;
 
     [[nodiscard]] Expected<> prepareTask();
@@ -43,7 +48,13 @@ private:
     [[nodiscard]] bool       loadProgress();
     void                     saveProgress() const;
     void                     launchWorkers();
-    void                     workerLoop();
+    void                     workerLoop(size_t slot);
+    void                     removeTempFiles();
+    /// 是否收到暂停/取消请求（准备阶段的错误不应被当作失败上报）
+    [[nodiscard]] bool       isAbortRequested() const noexcept {
+        return prepareAbort_.load(std::memory_order_acquire) || cancelRequested_.load(std::memory_order_acquire)
+               || !isRunningFlag_->load(std::memory_order_acquire);
+    }
     void                     joinWorkers();
     void                     finalizeTask();
     void                     setState(TaskState state);

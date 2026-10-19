@@ -18,14 +18,26 @@ Item {
     FluMenu {
         id: taskContextMenu
         property int targetTaskId: 0
+        property var targetDetail: null
+        property string targetStatus: targetDetail ? (targetDetail.statusStr || "") : ""
 
         FluMenuItem {
             bindMenu: taskContextMenu
-            iconText: "\uf5a2" // "\uf606"
-            text: qsTr("暂停") // qsTr("继续")
+            text: (taskContextMenu.targetStatus === "Running" || taskContextMenu.targetStatus === "Preparing")
+                    ? qsTr("暂停") : qsTr("继续")
+            iconText: (taskContextMenu.targetStatus === "Running" || taskContextMenu.targetStatus === "Preparing") ? "\uf5a2" : "\uf606"
+            enabled: {
+                var s = taskContextMenu.targetStatus;
+                return s === "Running" || s === "Paused" || s === "Pending" || s === "Failed"
+                    || s === "Preparing";
+            }
             onTriggered: {
-                if (taskContextMenu.targetTaskId > 0) {
+                if (taskContextMenu.targetTaskId <= 0) return;
+                var s = taskContextMenu.targetStatus;
+                if (s === "Running" || s === "Preparing") {
                     TaskListModel.pauseTask(taskContextMenu.targetTaskId);
+                } else {
+                    TaskListModel.resumeTask(taskContextMenu.targetTaskId);
                 }
             }
         }
@@ -34,10 +46,13 @@ Item {
             bindMenu: taskContextMenu
             iconText: "\uF13E"
             text: qsTr("重新下载")
+            enabled: {
+                var s = taskContextMenu.targetStatus;
+                return s === "Finished" || s === "Failed" || s === "Paused" || s === "Canceled";
+            }
             onTriggered: {
                 if (taskContextMenu.targetTaskId > 0) {
-                    // Cancel then re-create (simplified: just resume for now)
-                    TaskListModel.resumeTask(taskContextMenu.targetTaskId);
+                    TaskListModel.redownloadTask(taskContextMenu.targetTaskId);
                 }
             }
         }
@@ -48,12 +63,15 @@ Item {
             bindMenu: taskContextMenu
             iconText: "\uF583"
             text: qsTr("打开文件")
+            enabled: taskContextMenu.targetStatus === "Finished"
+                && taskContextMenu.targetDetail
+                && taskContextMenu.targetDetail.saveDir !== ""
+                && taskContextMenu.targetDetail.fileName !== ""
             onTriggered: {
-                if (taskContextMenu.targetTaskId > 0) {
-                    var detail = TaskListModel.getTaskDetail(taskContextMenu.targetTaskId);
-                    if (detail && detail.saveDir !== "" && detail.fileName !== "") {
-                        AppController.openFile(detail.saveDir + "/" + detail.fileName);
-                    }
+                if (taskContextMenu.targetTaskId <= 0) return;
+                var detail = taskContextMenu.targetDetail;
+                if (detail && detail.saveDir !== "" && detail.fileName !== "") {
+                    AppController.openFile(detail.saveDir + "/" + detail.fileName);
                 }
             }
         }
@@ -62,12 +80,12 @@ Item {
             bindMenu: taskContextMenu
             iconText: "\uF42F"
             text: qsTr("打开文件夹")
+            enabled: taskContextMenu.targetDetail && taskContextMenu.targetDetail.saveDir !== ""
             onTriggered: {
-                if (taskContextMenu.targetTaskId > 0) {
-                    var detail = TaskListModel.getTaskDetail(taskContextMenu.targetTaskId);
-                    if (detail && detail.saveDir !== "") {
-                        AppController.openFolder(detail.saveDir);
-                    }
+                if (taskContextMenu.targetTaskId <= 0) return;
+                var detail = taskContextMenu.targetDetail;
+                if (detail && detail.saveDir !== "") {
+                    AppController.openFolder(detail.saveDir);
                 }
             }
         }
@@ -144,9 +162,11 @@ Item {
 
                 onPauseClicked: function (id) {
                     var status = model.statusStr;
-                    if (status === "Running") {
+                    // Running/Preparing 才是在跑（可暂停）；Pending/Paused/Failed 都是"没在跑"（可继续）
+
+                    if (status === "Running" || status === "Preparing") {
                         TaskListModel.pauseTask(id);
-                    } else if (status === "Paused" || status === "Failed" || status === "Pending") {
+                    } else if (status === "Pending" || status === "Paused" || status === "Failed") {
                         TaskListModel.resumeTask(id);
                     }
                 }
@@ -157,6 +177,7 @@ Item {
 
                 onRightClicked: function (taskId, targetItem, mouseX, mouseY) {
                     taskContextMenu.targetTaskId = taskId;
+                    taskContextMenu.targetDetail = TaskListModel.getTaskDetail(taskId);
                     taskContextMenu.popup(targetItem, mouseX, mouseY);
                 }
 
