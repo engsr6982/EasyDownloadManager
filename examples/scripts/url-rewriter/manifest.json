@@ -1,0 +1,9 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "url-rewriter",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "URL 改写演示：同步正则改写 + 异步解析（edm.http）+ 文件重命名"
+}

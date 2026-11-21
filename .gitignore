@@ -94,3 +94,6 @@ node_modules
 .qtcreator/
 /node_modules/
 cmake-build-*/
+.tmp
+/bin
+/_deps

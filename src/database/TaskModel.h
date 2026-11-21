@@ -24,6 +24,7 @@ struct TaskModel {
     std::string mimeType;                         // MIME 类型
     std::string errorMsg;                         // 错误信息
     std::string saveDir;                          // 保存目录
+    std::string customHeaders;                    // 脚本注入的自定义请求头（JSON 对象，如 {"Token":"x"}）
     int         retryCount{kRetryCount};          // 重试次数
     bool        useProxy{false};                  // 是否使用代理
 

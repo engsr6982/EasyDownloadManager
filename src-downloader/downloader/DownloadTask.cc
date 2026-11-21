@@ -62,8 +62,8 @@ std::string fileNameFromUrl(std::string const& url) {
  * @return 包含文件名的std::optional对象，如果未找到文件名则返回std::nullopt
  */
 std::optional<std::string> fileNameFromContentDisposition(std::string const& value) {
-    static const std::regex filenameStarRe(R"(filename\*=UTF-8''([^;]+))", std::regex::icase);
-    static const std::regex filenameRe(R"re(filename="?([^";]+)"?)re", std::regex::icase);
+    static std::regex const filenameStarRe(R"(filename\*=UTF-8''([^;]+))", std::regex::icase);
+    static std::regex const filenameRe(R"re(filename="?([^";]+)"?)re", std::regex::icase);
 
     std::smatch match;
     // 首先尝试匹配RFC 5987编码的文件名
@@ -139,6 +139,17 @@ Expected<> DownloadTask::prepareTask() {
     auto taskId = configure_->id;
     EDM_LOG_DEBUG(taskId, "Preparing task...");
 
+    // --- 脚本钩子: beforeFetchMeta ---
+    // 元信息探测前，脚本可改写 url / userAgent / headers / proxy 等，或取消任务。
+    // （继续/恢复下载会再次进入 prepareTask，钩子会重复触发，脚本应保持幂等。）
+    if (auto hook = observer_->onBeforeFetchMeta(configure_); hook.cancelled) {
+        auto const reason = hook.reason.empty() ? std::string{"canceled by script (beforeFetchMeta)"} : hook.reason;
+        EDM_LOG_INFO(taskId, "Task rejected by script hook: beforeFetchMeta, reason={}", reason);
+        setState(TaskState::Canceled);
+        notifyError(reason);
+        return makeStringError(reason);
+    }
+
     if (!configure_->metaInfo) {
         EDM_LOG_DEBUG(taskId, "Fetching meta info from server");
 
@@ -185,6 +196,19 @@ Expected<> DownloadTask::prepareTask() {
         configure_->fileName = kInvalidFileName;
     }
     EDM_LOG_INFO(taskId, "Resolved filename: {}", configure_->fileName);
+
+    // --- 脚本钩子: afterFetchMeta ---
+    // 元信息与文件名都已确定、磁盘预分配前：脚本可改写 fileName，或取消任务。
+    if (auto hook = observer_->onAfterFetchMeta(configure_, meta); hook.cancelled) {
+        auto const reason = hook.reason.empty() ? std::string{"canceled by script (afterFetchMeta)"} : hook.reason;
+        EDM_LOG_INFO(taskId, "Task rejected by script hook: afterFetchMeta, reason={}", reason);
+        setState(TaskState::Canceled);
+        notifyError(reason);
+        return makeStringError(reason);
+    }
+
+    // 文件名解析（含脚本改写）完成后立即通知宿主持久化，确保 UI/DB 中的文件名与磁盘一致。
+    observer_->onFileNameChanged(configure_);
 
     state_->setTotalBytes(fileSize);
     std::error_code dirEc;
@@ -382,7 +406,7 @@ void DownloadTask::launchWorkers() {
 void DownloadTask::workerLoop(size_t slot) {
     auto taskId = configure_->id;
     EDM_LOG_DEBUG(taskId, "Worker {} started", slot);
-    auto& slotRef = state_->workers[slot];
+    auto&          slotRef = state_->workers[slot];
     DownloadWorker worker(configure_, outFilePath_, isRunningFlag_, &slotRef);
 
     while (isRunningFlag_->load(std::memory_order_acquire)) {
@@ -393,7 +417,7 @@ void DownloadTask::workerLoop(size_t slot) {
         if (range->completed.load(std::memory_order_relaxed)) continue;
 
         EDM_LOG_DEBUG(taskId, "Worker {} picking up range {} [{}, {})", slot, idx, range->start, range->end + 1);
-        // 领到分片 → 请求中；收到首个数据块后由写回调切到"接收中"
+        // 领到分片进入请求中；收到首个数据块后由写回调切到"接收中"
         slotRef.state.store(static_cast<int>(WorkerState::Requesting), std::memory_order_relaxed);
         slotRef.rangeIndex.store(idx, std::memory_order_relaxed);
         slotRef.attempt.store(0, std::memory_order_relaxed);
@@ -580,7 +604,7 @@ void DownloadTask::finalizeTask() {
     auto targetPath = std::filesystem::path(configure_->saveDir) / sanitizeFileName(finalName);
     // 重新下载语义：覆盖同名文件。下载全程写在 .edm 临时文件、校验通过后才走到这里，
     // 所以覆盖不会损坏已有文件。否则沿用旧行为另存为 file(1).ext。
-    auto finalPath = configure_->overwriteExisting ? targetPath : uniqueFinalPath(targetPath);
+    auto            finalPath = configure_->overwriteExisting ? targetPath : uniqueFinalPath(targetPath);
     std::error_code ec;
     std::filesystem::rename(outFilePath_, finalPath, ec);
     if (ec && configure_->overwriteExisting) {
@@ -607,7 +631,7 @@ void DownloadTask::finalizeTask() {
 
 Expected<> DownloadTask::pause() {
     // 准备阶段（元信息探测/磁盘预分配）start() 不持锁，这里也必须只用原子量请求中止，
-    // 否则用户点了暂停却要等整个探测结束——表现就是"任务不响应任何操作"。
+    // 否则用户点了暂停却要等整个探测结束，表现为"任务不响应任何操作"。
     if (preparing_.load(std::memory_order_acquire)) {
         EDM_LOG_INFO(configure_->id, "Pausing task during preparation");
         prepareAbort_.store(true, std::memory_order_release);
@@ -700,9 +724,9 @@ void DownloadTask::updateSpeed() {
         return;
     }
 
-    auto const total  = getDownloadedBytes();
-    auto const last   = lastDownloadedBytes_.exchange(total, std::memory_order_relaxed);
-    auto const speed  = static_cast<double>(total - last);
+    auto const total = getDownloadedBytes();
+    auto const last  = lastDownloadedBytes_.exchange(total, std::memory_order_relaxed);
+    auto const speed = static_cast<double>(total - last);
     currentSpeed_.store(speed, std::memory_order_relaxed);
     state_->setDownloadedBytes(total);
     state_->setSpeed(speed);
@@ -713,7 +737,7 @@ std::shared_ptr<DownloadState>    DownloadTask::getStateObject() const { return 
 
 int64_t DownloadTask::getDownloadedBytes() const {
     int64_t total = 0;
-    for (const auto& r : state_->ranges) {
+    for (auto const& r : state_->ranges) {
         total += r->downloaded.load(std::memory_order_relaxed);
     }
     return total;

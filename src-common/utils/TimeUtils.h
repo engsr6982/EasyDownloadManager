@@ -70,7 +70,7 @@ inline std::string formatTime(
     std::string_view                      fmt_str   = "%Y-%m-%d %H:%M:%S"
 ) {
     // 降到秒精度：fmt 是按 duration 的"周期"决定要不要补小数秒的，
-    // 只把值截断是不够的——system_clock 在 MSVC 上周期是 100ns，
+    // 只把值截断是不够的，system_clock 在 MSVC 上周期是 100ns，
     // 直接格式化 %S 会输出 "17.0000000"。这里换成秒周期的 time_point。
     auto const secs = std::chrono::time_point_cast<std::chrono::seconds>(time);
 
@@ -193,9 +193,9 @@ inline std::chrono::system_clock::time_point parseTime(std::string_view time_str
             try {
                 // 将本地时间通过当前时区转换回 UTC 系统时间点
                 return current_zone()->to_sys(lt);
-            } catch (const std::chrono::nonexistent_local_time&) {
+            } catch (std::chrono::nonexistent_local_time const&) {
                 return {}; // 夏令时跳跃导致的“不存在时间”异常处理
-            } catch (const std::chrono::ambiguous_local_time&) {
+            } catch (std::chrono::ambiguous_local_time const&) {
                 return {}; // 夏令时回退导致的“重叠时间”异常处理
             }
         }

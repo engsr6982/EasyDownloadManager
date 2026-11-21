@@ -1,5 +1,5 @@
 #include "DownloadWorker.h"
-#include "CurlEx.h"
+#include "CurlFromContext.h"
 #include "DownloadTypes.h"
 #include "utils/TaskLogger.h"
 
@@ -119,13 +119,13 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
 
     // 配置 CURL
     assert(config_);
-    auto curlExRes = CurlEx::fromContext(config_);
+    auto curlExRes = makeCurlFromContext(config_);
     if (!curlExRes) {
         std::fclose(fp);
         EDM_LOG_ERROR(config_->id, "downloadRange: failed to create CURL handle: {}", curlExRes.error().message());
         return forwardError(curlExRes.error());
     }
-    CurlEx curl = std::move(curlExRes.value());
+    curl::CurlEx curl = std::move(curlExRes.value());
 
     // 告诉服务器我们要下载的精确范围
     std::string rangeStr = fmt::format("{}-{}", currentOffset, range->end);
@@ -195,13 +195,13 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
         return makeStringError("Failed to open temp file for writing: " + outFilePath_);
     }
 
-    auto curlExRes = CurlEx::fromContext(config_);
+    auto curlExRes = makeCurlFromContext(config_);
     if (!curlExRes) {
         std::fclose(fp);
         EDM_LOG_ERROR(config_->id, "downloadWholeFile: failed to create CURL handle: {}", curlExRes.error().message());
         return forwardError(curlExRes.error());
     }
-    CurlEx curl = std::move(curlExRes.value());
+    curl::CurlEx curl = std::move(curlExRes.value());
 
     // downloadWholeFile 不需要范围校验（从偏移 0 写全文件是正确的）
     curl.setAbortFlag(isTaskRunning_.get());

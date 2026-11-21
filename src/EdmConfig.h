@@ -1,6 +1,7 @@
 #pragma once
 #include <magic_enum/magic_enum.hpp>
 #include <qsettings.h>
+#include <qstringlist.h>
 #include <qtclasshelpermacros.h>
 
 #include "Global.h"
@@ -80,6 +81,16 @@ public:
     // 状态通知
     bool canShowStatusNotification() const;
     void setShowStatusNotification(bool show);
+
+    // 脚本扩展系统
+    /// 脚本目录：环境变量 EDM_SCRIPT_DIR 优先（开发调试用），否则 AppData/scripts
+    static QString getScriptsDir();
+    /// 被禁用的脚本名列表（未列出的默认启用）
+    QStringList getDisabledScripts() const;
+    void        setDisabledScripts(QStringList const& names);
+    /// 可变钩子（Promise handler）的阻塞等待超时（毫秒）
+    int  getScriptHookTimeoutMs() const;
+    void setScriptHookTimeoutMs(int ms);
 
 public:
     static inline constexpr auto kDefaultAutoStart    = false;

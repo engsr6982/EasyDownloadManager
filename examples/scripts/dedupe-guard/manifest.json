@@ -1,0 +1,9 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "dedupe-guard",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "阻止为同一 URL 重复创建进行中的任务（历史完成的任务不受影响）"
+}

@@ -10,11 +10,7 @@
 
 #include <fmt/format.h>
 
-namespace edm {
-struct TaskContext;
-}
-
-namespace edm::downloader {
+namespace edm::curl {
 
 inline auto makeCurlError(CURLcode code) {
     return makeError(
@@ -43,8 +39,8 @@ public:
     CurlEx(CurlEx&& o) noexcept;
     CurlEx& operator=(CurlEx&& o) noexcept;
 
-    CurlEx(const CurlEx&)            = delete;
-    CurlEx& operator=(const CurlEx&) = delete;
+    CurlEx(CurlEx const&)            = delete;
+    CurlEx& operator=(CurlEx const&) = delete;
 
     inline CURL* get() const noexcept { return curl_; }
 
@@ -104,9 +100,7 @@ public:
      * @param name 请求头名称 (例如 "ETag", "Content-Disposition")
      * @return 如果存在则返回对应的值，不存在则返回 nullopt
      */
-    std::optional<std::string> getHeader(const std::string& name) const;
-
-    static Expected<downloader::CurlEx> fromContext(std::shared_ptr<TaskContext> const& cfg);
+    std::optional<std::string> getHeader(std::string const& name) const;
 };
 
-} // namespace edm::downloader
+} // namespace edm::curl

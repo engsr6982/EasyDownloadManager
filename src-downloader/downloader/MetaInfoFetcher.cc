@@ -1,12 +1,12 @@
 #include "MetaInfoFetcher.h"
-#include "CurlEx.h"
+#include "CurlFromContext.h"
 #include "DownloadTypes.h"
 #include "Global.h"
 #include "utils/TaskLogger.h"
 
 #include <chrono>
 
-namespace edm ::downloader {
+namespace edm::downloader {
 
 namespace {
 
@@ -22,7 +22,7 @@ struct DiscardCtx {
 size_t discardCallback(char* /*ptr*/, size_t size, size_t nmemb, void* userdata) {
     auto* ctx = static_cast<DiscardCtx*>(userdata);
 
-    // 上层请求暂停/取消 → 立刻中断探测
+    // 上层请求暂停或取消时立刻中断探测
     if (ctx->abortFlag && !ctx->abortFlag->load(std::memory_order_relaxed)) return 0;
 
     ctx->received += static_cast<int64_t>(size * nmemb);
@@ -46,13 +46,13 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(
 
     EDM_LOG_DEBUG(configure->id, "MetaInfoFetcher: fetching meta from {}", configure->url);
 
-    auto ex_res = CurlEx::fromContext(configure);
+    auto ex_res = makeCurlFromContext(configure);
     if (!ex_res) {
         EDM_LOG_ERROR(configure->id, "MetaInfoFetcher: failed to create CURL handle: {}", ex_res.error().message());
         return forwardError(ex_res.error());
     }
 
-    CurlEx curl = std::move(ex_res.value());
+    curl::CurlEx curl = std::move(ex_res.value());
 
     // 显式将当前探测请求的 FAILONERROR 关闭（设为 0L）。
     // 因为 Meta 探测阶段的职责是"观察者"，无论服务器返回 200、206 还是 403，
@@ -71,7 +71,7 @@ Expected<FetchedMetaInfo> MetaInfoFetcher::fetchAll(
 
     EDM_LOG_TRACE(configure->id, "MetaInfoFetcher: performing HEAD-like request with Range: 0-0");
 
-    auto const startedAt = std::chrono::steady_clock::now();
+    auto const startedAt  = std::chrono::steady_clock::now();
     auto       performRes = curl.perform();
 
     // 探测阶段的 body 是丢弃的，写回调主动中断（服务器不支持 Range 时）会以

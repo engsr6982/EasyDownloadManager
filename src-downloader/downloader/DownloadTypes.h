@@ -27,7 +27,7 @@ struct FetchedMetaInfo {
 
 struct TaskContext {
     TaskId const               id{kInvalidTaskID};           // 任务唯一标识符
-    std::string const          url;                          // 要下载的文件地址
+    std::string                url;                          // 要下载的文件地址（脚本钩子 beforeFetchMeta 可改写）
     std::string const          saveDir;                      // 文件保存目录
     AvailableThreads           threads{kDefaultThreadCount}; // 下载线程数
     BandLimit                  bandLimit{kDefaultBandLimit}; // 下载带宽限制

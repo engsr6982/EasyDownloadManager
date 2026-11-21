@@ -9,8 +9,8 @@ set(DOWNLOADER_SOURCES
         downloader/DownloadTask.h
         downloader/DownloadWorker.cc
         downloader/DownloadWorker.h
-        downloader/CurlEx.h
-        downloader/CurlEx.cc
+
+        downloader/CurlFromContext.cc
         downloader/FileVerifier.cc
         downloader/FileVerifier.h
         downloader/MetaInfoFetcher.cc

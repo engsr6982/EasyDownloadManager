@@ -7,24 +7,38 @@
 #include "database/TaskModel.h"
 #include "database/TaskModelConversion.h"
 #include "downloader/DownloadTypes.h"
+#include "scripting/engine/ScriptEventBus.h"
+#include "scripting/engine/ScriptingBootstrap.h"
 #include "utils/TaskLogger.h"
 #include "utils/TimeUtils.h"
 #include "utils/Utils.h"
 
 #include <QFile>
 #include <QMetaObject>
+#include <QTimer>
+
+#include <glaze/glaze.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <exception>
 #include <functional>
+#include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <utility>
 
 namespace edm {
+
+using script::AfterFetchMetaEvent;
+using script::BeforeCreateTaskEvent;
+using script::BeforeFetchMetaEvent;
+using script::HookId;
+using script::TaskNotifyEvent;
 
 namespace {
 
@@ -40,6 +54,15 @@ struct AppService::Impl : public ITaskObserver {
 
     std::unique_ptr<DownloadDatabase> database_;
     std::unique_ptr<Dispatcher>       dispatcher_;
+
+    // ---- 脚本扩展系统（由 EdmApplication 接线，可为 null）----
+    script::ScriptingBootstrap* scripting_{nullptr};
+
+    // ---- 脚本通知辅助状态（引擎线程写入，主线程消费）----
+    std::mutex                 scriptNotifyMutex_;
+    std::set<int>              activeTasks_;   // 正在 Running 的任务（progress 汇总用）
+    std::map<int, bool>        resumingFlags_; // Paused 到 Running 恢复链的标记
+    std::map<int, std::string> lastErrors_;    // onError 记录，taskFailed 事件取用
 
     // ---- 后台执行器（两条车道）----
     // 引擎的 createTask/pause/resume/cancel/removeTask 都会阻塞（元信息探测、
@@ -112,9 +135,7 @@ struct AppService::Impl : public ITaskObserver {
     }
 
     /// 回到 GUI 线程执行（对象已销毁时 Qt 自动丢弃该事件）
-    void runOnGui(std::function<void()> fn) {
-        QMetaObject::invokeMethod(owner, std::move(fn), Qt::QueuedConnection);
-    }
+    void runOnGui(std::function<void()> fn) { QMetaObject::invokeMethod(owner, std::move(fn), Qt::QueuedConnection); }
 
     /// 后台线程上报操作失败
     void reportError(int taskId, QString const& prefix, QString const& message) {
@@ -124,11 +145,236 @@ struct AppService::Impl : public ITaskObserver {
         });
     }
 
+    // ---------- 脚本钩子 ----------
+
+    /// beforeCreateTask：主线程同步派发（createTask 本就在 GUI 线程）。
+    /// 事件字段写入 model（taskId 尚未分配，此时为 0）。
+    /// @return cancelled=true 时 reason 为取消原因。
+    bool fireBeforeCreateTask(TaskModel& model) {
+        auto* bus = scripting_ ? scripting_->eventBus() : nullptr;
+        if (!bus || !bus->hasListeners(HookId::BeforeCreateTask)) return false;
+
+        auto ev         = std::make_shared<BeforeCreateTaskEvent>();
+        ev->url         = model.url;
+        ev->fileName    = model.fileName;
+        ev->saveDir     = model.saveDir;
+        ev->bandLimit   = model.bandLimit;
+        ev->threadCount = model.threadCount;
+        ev->userAgent   = model.userAgent;
+        ev->useProxy    = model.useProxy;
+
+        bool const cancelled = bus->fireBeforeCreateTask(ev);
+        if (cancelled) return true;
+
+        // 写回 model（含脚本注入的自定义请求头 / origin 等浏览器语义头）
+        model.url         = ev->url;
+        model.fileName    = ev->fileName;
+        model.saveDir     = ev->saveDir;
+        model.bandLimit   = ev->bandLimit;
+        model.threadCount = ev->threadCount;
+        model.userAgent   = ev->userAgent;
+        model.useProxy    = ev->useProxy;
+
+        std::map<std::string, std::string> custom;
+        for (auto const& line : ev->headers) {
+            auto const sep = line.find(':');
+            if (sep == std::string::npos) continue;
+            auto key = line.substr(0, sep);
+            auto val = line.substr(sep + 1);
+            if (!val.empty() && val.front() == ' ') val.erase(0, 1);
+            custom[std::move(key)] = std::move(val);
+        }
+        if (!custom.empty()) {
+            auto buffer         = glz::write_json(custom);
+            model.customHeaders = buffer ? std::move(*buffer) : std::string{};
+        }
+        return false;
+    }
+
+    /// 可变元信息钩子（beforeFetchMeta / afterFetchMeta）：在主线程执行。
+    /// 事件由 ctx 构造，脚本改写直接落在 ctx 上（调用线程正阻塞等待，无并发），
+    /// 随后立即持久化到数据库。@return 取消结果。
+    HookResult fireMutableMetaHookMain(HookId hook, std::shared_ptr<TaskContext> const& ctx) {
+        auto* bus = scripting_ ? scripting_->eventBus() : nullptr;
+        if (!bus || !ctx) return {};
+
+        if (hook == HookId::BeforeFetchMeta) {
+            auto ev       = std::make_shared<BeforeFetchMetaEvent>();
+            ev->taskId    = ctx->id;
+            ev->url       = ctx->url;
+            ev->userAgent = ctx->userAgent;
+            ev->origin    = ctx->origin;
+            ev->referer   = ctx->referer;
+            ev->cookie    = ctx->cookie;
+            ev->headers   = ctx->headers;
+            ev->useProxy  = ctx->proxyUrl.has_value();
+            ev->proxyUrl  = ctx->proxyUrl.value_or("");
+
+            bool const cancelled = bus->fireBeforeFetchMeta(ev);
+            ctx->url             = ev->url;
+            ctx->userAgent       = ev->userAgent;
+            ctx->origin          = ev->origin;
+            ctx->referer         = ev->referer;
+            ctx->cookie          = ev->cookie;
+            ctx->headers         = ev->headers;
+            ctx->proxyUrl        = ev->proxyUrl.empty() ? std::nullopt : std::optional<std::string>(ev->proxyUrl);
+            persistContext(*ctx);
+            persistHeaders(*ctx);
+            if (cancelled) return HookResult{true, ev->cancelReason()};
+            return {};
+        }
+
+        // afterFetchMeta：元信息已就绪，文件名已解析（尚未预分配磁盘）
+        auto ev       = std::make_shared<AfterFetchMetaEvent>();
+        ev->taskId    = ctx->id;
+        ev->url       = ctx->url;
+        ev->userAgent = ctx->userAgent;
+        ev->origin    = ctx->origin;
+        ev->referer   = ctx->referer;
+        ev->cookie    = ctx->cookie;
+        ev->headers   = ctx->headers;
+        ev->fileName  = ctx->fileName;
+        if (ctx->metaInfo) {
+            auto const& meta       = *ctx->metaInfo;
+            ev->finalUrl           = meta.finalUrl;
+            ev->supportRange       = meta.supportRange;
+            ev->fileSize           = meta.fileSize.value_or(kInvalidFileSize);
+            ev->contentType        = meta.contentType;
+            ev->etag               = meta.etag;
+            ev->lastModified       = meta.lastModified;
+            ev->contentDisposition = meta.contentDisposition;
+            ev->md5                = meta.md5;
+        }
+
+        bool const cancelled = bus->fireAfterFetchMeta(ev);
+        ctx->url             = ev->url;
+        ctx->userAgent       = ev->userAgent;
+        ctx->origin          = ev->origin;
+        ctx->referer         = ev->referer;
+        ctx->cookie          = ev->cookie;
+        ctx->headers         = ev->headers;
+        ctx->fileName        = ev->fileName;
+        persistContext(*ctx);
+        persistHeaders(*ctx);
+        if (cancelled) return HookResult{true, ev->cancelReason()};
+        return {};
+    }
+
+    /// 引擎线程侧入口：Queued 投递到主线程 + 条件变量等待（带超时）。
+    /// 不用 BlockingQueuedConnection：退出时主线程停止调度会让车道线程永久卡死。
+    HookResult dispatchMutableMetaHook(HookId hook, std::shared_ptr<TaskContext> const& ctx) {
+        if (!scripting_ || stopping_.load(std::memory_order_acquire)) return {};
+        auto* bus = scripting_->eventBus();
+        if (!bus || !bus->hasListeners(hook)) return {};
+
+        struct HookRequest {
+            std::mutex              mutex;
+            std::condition_variable cv;
+            bool                    done{false};
+            HookResult              result;
+        };
+        auto request = std::make_shared<HookRequest>();
+
+        runOnGui([this, hook, ctx, request] {
+            // 应用退出（stopping_）后不再触发脚本
+            if (!stopping_.load(std::memory_order_acquire)) {
+                request->result = fireMutableMetaHookMain(hook, ctx);
+            }
+            std::lock_guard lock(request->mutex);
+            request->done = true;
+            request->cv.notify_all();
+        });
+
+        // 脚本 Promise 已受 hookTimeoutMs 约束，再留 2s 往返余量；超时视为钩子未生效
+        auto const       waitMs = std::chrono::milliseconds{EdmConfig::getInstance().getScriptHookTimeoutMs() + 2000};
+        std::unique_lock lock(request->mutex);
+        if (!request->cv.wait_for(lock, waitMs, [&] { return request->done; })) {
+            EDM_LOG_DEBUG(ctx ? ctx->id : 0, "Script hook dispatch timed out (app shutting down?)");
+            return {};
+        }
+        return request->result;
+    }
+
+    // ---- ITaskObserver 的脚本钩子实现（引擎后台线程回调） ----
+
+    HookResult onBeforeFetchMeta(std::shared_ptr<TaskContext>& ctx) override {
+        return dispatchMutableMetaHook(HookId::BeforeFetchMeta, ctx);
+    }
+
+    HookResult onAfterFetchMeta(std::shared_ptr<TaskContext>& ctx, FetchedMetaInfo const& /*meta*/) override {
+        return dispatchMutableMetaHook(HookId::AfterFetchMeta, ctx);
+    }
+
+    /// 通知类钩子（引擎线程调用）：复制所需字段后排队到主线程 fire-and-forget。
+    void queueNotifyHook(HookId hook, TaskContext const& ctx, std::string const& errorMsg = {}) {
+        if (!scripting_) return;
+        auto* bus = scripting_->eventBus();
+        if (!bus || !bus->hasListeners(hook)) return;
+
+        auto ev      = std::make_shared<TaskNotifyEvent>();
+        ev->taskId   = ctx.id;
+        ev->url      = ctx.url;
+        ev->fileName = ctx.fileName;
+        ev->errorMsg = errorMsg;
+
+        auto* busPtr = bus;
+        runOnGui([busPtr, hook, ev] { busPtr->fireNotify(hook, ev); });
+    }
+
+    /// taskProgress 通知（1Hz 定时器，主线程）：汇总全部活动任务。
+    void fireProgressHooks() {
+        if (!scripting_) return;
+        auto* bus = scripting_->eventBus();
+        if (!bus || !bus->hasListeners(HookId::TaskProgress)) return;
+        if (!database_) return;
+
+        std::set<int> ids;
+        {
+            std::lock_guard lock(scriptNotifyMutex_);
+            ids = activeTasks_;
+        }
+        for (auto const id : ids) {
+            auto st = dispatcher_ ? dispatcher_->getTaskState(id) : nullptr;
+            if (!st) continue;
+            auto ev        = std::make_shared<TaskNotifyEvent>();
+            ev->taskId     = id;
+            ev->downloaded = static_cast<double>(st->downloadedBytes());
+            ev->total      = static_cast<double>(st->totalBytes());
+            ev->speed      = st->speed();
+            if (ev->total > 0) ev->percent = ev->downloaded / ev->total * 100.0;
+            // url/fileName 取库中快照，避免跨线程读引擎上下文
+            try {
+                if (auto model = database_->getTaskById(id)) {
+                    ev->url      = model->url;
+                    ev->fileName = model->fileName;
+                }
+            } catch (std::exception const& e) {
+                qWarning() << "AppService: progress snapshot for task" << id << "failed:" << e.what();
+            }
+            bus->fireNotify(HookId::TaskProgress, ev);
+        }
+    }
+
+    /// origin/referer/cookie 回写 headers 表（脚本改写后持久化，断点续传仍生效）。
+    void persistHeaders(TaskContext const& ctx) {
+        if (!database_) return;
+        try {
+            auto header     = std::make_shared<TaskHeaderModel>();
+            header->id      = ctx.id;
+            header->origin  = ctx.origin.value_or("");
+            header->cookie  = ctx.cookie.value_or("");
+            header->referer = ctx.referer.value_or("");
+            database_->insertTaskHeader(header);
+        } catch (std::exception const& e) {
+            qWarning() << "AppService: persist headers for task" << ctx.id << "failed:" << e.what();
+        }
+    }
+
     // ---------- 上下文构造 ----------
 
     /// 用数据库记录构造引擎上下文：带上该任务持久化的 header
     /// （浏览器集成写入的 origin/referer/cookie 靠这里生效），
-    /// 并按任务自身记录的 useProxy 决定是否挂代理——创建/继续/重新下载都走这里，
+    /// 并按任务自身记录的 useProxy 决定是否挂代理；创建/继续/重新下载都走这里，
     /// 保证"重新下载"用的是任务当初的参数，而不是当前全局设置。
     std::shared_ptr<TaskContext> makeContext(std::shared_ptr<TaskModel> const& model) {
         std::shared_ptr<TaskHeaderModel> header;
@@ -184,15 +430,63 @@ struct AppService::Impl : public ITaskObserver {
 
     // ---- ITaskObserver（由引擎 worker 线程回调） ----
 
-    void onStateChanged(std::shared_ptr<TaskContext>& ctx, TaskState /*oldState*/) override {
+    void onStateChanged(std::shared_ptr<TaskContext>& ctx, TaskState oldState) override {
         if (!ctx) return;
         persistContext(*ctx);
         emit owner->taskStateChanged(ctx->id);
         notifyIfFinished(*ctx);
+
+        // ---- 脚本通知钩子（传输阶段）----
+        {
+            std::lock_guard lock(scriptNotifyMutex_);
+            if (ctx->state == TaskState::Running) {
+                activeTasks_.insert(ctx->id);
+            }
+            if (oldState == TaskState::Paused && ctx->state == TaskState::Preparing) {
+                resumingFlags_[ctx->id] = true;
+            }
+            if (isTerminalState(ctx->state)) {
+                activeTasks_.erase(ctx->id);
+                resumingFlags_.erase(ctx->id);
+            }
+        }
+
+        if (ctx->state == TaskState::Running && oldState == TaskState::Preparing) {
+            bool resuming{false};
+            {
+                std::lock_guard lock(scriptNotifyMutex_);
+                auto            it = resumingFlags_.find(ctx->id);
+                if (it != resumingFlags_.end()) {
+                    resuming = it->second;
+                    resumingFlags_.erase(it);
+                }
+            }
+            queueNotifyHook(resuming ? HookId::TaskResumed : HookId::TaskStarted, *ctx);
+        } else if (oldState == TaskState::Running && ctx->state == TaskState::Paused) {
+            queueNotifyHook(HookId::TaskPaused, *ctx);
+        }
+
+        // ---- 终态脚本通知 ----
+        if (isTerminalState(ctx->state)) {
+            HookId terminalHook = HookId::TaskCanceled;
+            if (ctx->state == TaskState::Finished) terminalHook = HookId::TaskCompleted;
+            if (ctx->state == TaskState::Failed) terminalHook = HookId::TaskFailed;
+            std::string errorMsg;
+            if (ctx->state == TaskState::Failed) {
+                std::lock_guard lock(scriptNotifyMutex_);
+                auto            it = lastErrors_.find(ctx->id);
+                if (it != lastErrors_.end()) errorMsg = it->second;
+            }
+            queueNotifyHook(terminalHook, *ctx, errorMsg);
+        }
     }
 
     void onError(std::shared_ptr<TaskContext>& ctx, std::string const& error) override {
         if (!ctx) return;
+        {
+            std::lock_guard lock(scriptNotifyMutex_);
+            lastErrors_[ctx->id] = error;
+        }
         persistContext(*ctx, QString::fromStdString(error));
         emit owner->taskError(ctx->id, QString::fromStdString(error));
     }
@@ -219,12 +513,7 @@ struct AppService::Impl : public ITaskObserver {
                 qWarning() << "AppService: read error message for task" << ctx.id << "failed:" << e.what();
             }
         }
-        emit owner->taskFinished(
-            ctx.id,
-            static_cast<int>(ctx.state),
-            QString::fromStdString(ctx.fileName),
-            errorMsg
-        );
+        emit owner->taskFinished(ctx.id, static_cast<int>(ctx.state), QString::fromStdString(ctx.fileName), errorMsg);
     }
 
     /// 将引擎最新上下文同步回数据库（并发安全：DownloadDatabase 自带锁；
@@ -250,11 +539,78 @@ struct AppService::Impl : public ITaskObserver {
     }
 };
 
-AppService::AppService(QObject* parent) : QObject(parent), impl(std::make_unique<Impl>(this)) {}
+AppService::AppService(QObject* parent) : QObject(parent), impl(std::make_unique<Impl>(this)) {
+    // 1Hz 进度通知定时器（脚本 taskProgress 钩子；QmlTaskListModel 的刷新定时器
+    // 独立驱动 UI 轮询，两者互不影响）
+    auto* progressTimer = new QTimer(this);
+    progressTimer->setInterval(1000);
+    connect(progressTimer, &QTimer::timeout, this, [this] { impl->fireProgressHooks(); });
+    progressTimer->start();
+}
 AppService::~AppService() = default;
 
 Dispatcher*       AppService::dispatcher() const { return impl->dispatcher_.get(); }
 DownloadDatabase* AppService::database() const { return impl->database_.get(); }
+
+void AppService::setScripting(script::ScriptingBootstrap* scripting) { impl->scripting_ = scripting; }
+script::ScriptingBootstrap* AppService::scripting() const { return impl->scripting_; }
+
+std::optional<script::TaskSnapshot> AppService::taskSnapshot(int taskId) const {
+    if (!impl->database_) return std::nullopt;
+    try {
+        auto model = impl->database_->getTaskById(taskId);
+        if (!model) return std::nullopt;
+        script::TaskSnapshot snap;
+        snap.id          = model->id;
+        snap.url         = model->url;
+        snap.fileName    = model->fileName;
+        snap.saveDir     = model->saveDir;
+        snap.state       = model->state;
+        snap.fileSize    = model->fileSize;
+        snap.threadCount = model->threadCount;
+        if (auto st = impl->dispatcher_->getTaskState(taskId)) {
+            snap.state       = st->state();
+            snap.speed       = st->speed();
+            snap.downloaded  = static_cast<double>(st->downloadedBytes());
+            auto const total = st->totalBytes();
+            if (total >= 0) snap.fileSize = total;
+        }
+        return snap;
+    } catch (std::exception const& e) {
+        qWarning() << "AppService: task snapshot for" << taskId << "failed:" << e.what();
+        return std::nullopt;
+    }
+}
+
+std::vector<script::TaskSnapshot> AppService::taskSnapshots() const {
+    std::vector<script::TaskSnapshot> result;
+    if (!impl->database_) return result;
+    try {
+        impl->database_->forEachTask([this, &result](std::shared_ptr<TaskModel> const& model) {
+            auto snap = taskSnapshot(model->id);
+            if (snap) result.push_back(std::move(*snap));
+            return true;
+        });
+    } catch (std::exception const& e) {
+        qWarning() << "AppService: task snapshots failed:" << e.what();
+    }
+    return result;
+}
+
+bool AppService::taskAction(int taskId, script::TaskAction action) {
+    Expected<> result = std::invoke([&]() -> Expected<> {
+        switch (action) {
+        case script::TaskAction::Pause:
+            return pauseTask(taskId);
+        case script::TaskAction::Resume:
+            return resumeTask(taskId);
+        case script::TaskAction::Cancel:
+            return cancelTask(taskId);
+        }
+        return makeStringError("unknown task action");
+    });
+    return result.has_value();
+}
 
 void AppService::shutdown() {
     // 先停后台线程（排空队列），再释放调度器（任务析构会落库），最后释放数据库。
@@ -283,6 +639,11 @@ Expected<std::shared_ptr<TaskModel>> AppService::createTask(QString const& url, 
     // 从 URL 路径推导占位文件名（在引擎解析真实文件名之前）
     model->fileName = utils::resolveFileName(stdUrl);
 
+    // ---- 脚本钩子: beforeCreateTask（主线程同步；可改写全部任务参数或取消）----
+    if (impl->fireBeforeCreateTask(*model)) {
+        return makeStringError("任务已被脚本取消");
+    }
+
     // 持久化到数据库以获取有效 TaskId
     try {
         impl->database_->insertTask(model);
@@ -294,7 +655,7 @@ Expected<std::shared_ptr<TaskModel>> AppService::createTask(QString const& url, 
     auto configure = impl->makeContext(model);
 
     // 行先出现、派发放后台线程：元信息探测是网络请求，不阻塞 UI 线程
-    emit taskCreated(model);
+    emit  taskCreated(model);
     auto* implPtr = impl.get();
     impl->postDispatch([implPtr, id = model->id, configure] {
         implPtr->dispatchNow(id, configure, QStringLiteral("创建任务失败: "), /*dropRowOnFailure=*/true);
@@ -326,7 +687,7 @@ Expected<> AppService::redownloadTask(int taskId) {
         }
 
         // 3) 重置任务记录。id 保持不变：headers 行与 spdlog 日志都绑定该 id。
-        model->state      = TaskState::Pending;
+        model->state = TaskState::Pending;
         model->errorMsg.clear();
         model->firstTry   = time_utils::nowSeconds();
         model->lastTry    = model->firstTry;
@@ -421,11 +782,8 @@ Expected<> AppService::cancelTask(int taskId) {
     auto* implPtr = impl.get();
     impl->postControl([implPtr, taskId] {
         if (auto canceled = implPtr->dispatcher_->cancelTask(taskId); !canceled) {
-            implPtr->reportError(
-                taskId,
-                QStringLiteral("取消失败: "),
-                QString::fromStdString(canceled.error().message())
-            );
+            implPtr
+                ->reportError(taskId, QStringLiteral("取消失败: "), QString::fromStdString(canceled.error().message()));
         }
     });
     return {};
@@ -443,19 +801,17 @@ Expected<> AppService::deleteTask(int taskId, bool deleteFiles) {
             try {
                 auto model = implPtr->database_->getTaskById(taskId);
                 if (model) {
-                    auto basePath = QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName);
+                    auto basePath =
+                        QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName);
                     // 删除最终文件、临时下载文件与进度元数据
-                    QString const suffixes[] = {QStringLiteral(""), QStringLiteral(".edm"), QStringLiteral(".edm.meta")};
+                    QString const suffixes[] =
+                        {QStringLiteral(""), QStringLiteral(".edm"), QStringLiteral(".edm.meta")};
                     for (auto const& suffix : suffixes) {
                         QFile::remove(basePath + suffix);
                     }
                 }
             } catch (std::exception const& e) {
-                implPtr->reportError(
-                    taskId,
-                    QStringLiteral("删除文件失败: "),
-                    QString::fromStdString(e.what())
-                );
+                implPtr->reportError(taskId, QStringLiteral("删除文件失败: "), QString::fromStdString(e.what()));
                 return;
             }
         }
@@ -464,20 +820,26 @@ Expected<> AppService::deleteTask(int taskId, bool deleteFiles) {
         try {
             removed = implPtr->database_->deleteTask(taskId);
         } catch (std::exception const& e) {
-            implPtr->reportError(
-                taskId,
-                QStringLiteral("删除任务失败: "),
-                QString::fromStdString(e.what())
-            );
+            implPtr->reportError(taskId, QStringLiteral("删除任务失败: "), QString::fromStdString(e.what()));
             return;
         }
         if (!removed) {
-            implPtr->reportError(taskId, QStringLiteral("删除任务失败: "), QStringLiteral("Task not found in database"));
+            implPtr
+                ->reportError(taskId, QStringLiteral("删除任务失败: "), QStringLiteral("Task not found in database"));
             return;
         }
 
         implPtr->runOnGui([implPtr, taskId] {
             if (implPtr->stopping_.load(std::memory_order_acquire)) return;
+            // 脚本通知：taskRemoved
+            if (implPtr->scripting_) {
+                auto* bus = implPtr->scripting_->eventBus();
+                if (bus && bus->hasListeners(HookId::TaskRemoved)) {
+                    auto ev    = std::make_shared<TaskNotifyEvent>();
+                    ev->taskId = taskId;
+                    bus->fireNotify(HookId::TaskRemoved, ev);
+                }
+            }
             emit implPtr->owner->taskRemoved(taskId);
         });
     });

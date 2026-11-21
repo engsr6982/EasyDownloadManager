@@ -63,9 +63,9 @@ Window {
                     color: btnMin.hovered ? "#E0E0E0" : "transparent"
                 }
                 contentItem: Text {
-                    text: "—"
-                    font.family: Constants.fontFamily
-                    font.pixelSize: 10
+                    text: "\uEBD1" // subtract
+                    font.family: Constants.iconFontFamily
+                    font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     color: Constants.textPrimary
@@ -83,9 +83,9 @@ Window {
                     color: btnClose.hovered ? Constants.danger : "transparent"
                 }
                 contentItem: Text {
-                    text: "×"
-                    font.family: Constants.fontFamily
-                    font.pixelSize: 16
+                    text: "\uF36A" // dismiss
+                    font.family: Constants.iconFontFamily
+                    font.pixelSize: 14
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     color: btnClose.hovered ? Constants.bgContent : Constants.textPrimary

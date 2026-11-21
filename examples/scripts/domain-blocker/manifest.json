@@ -1,0 +1,10 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "domain-blocker",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "按黑名单拦截下载任务（beforeCreateTask 取消），支持 *.example.com 通配",
+    "icon": "icon.png"
+}

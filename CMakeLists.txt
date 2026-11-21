@@ -20,10 +20,34 @@ find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(glaze CONFIG REQUIRED)
 
+# --- 脚本扩展系统依赖：quickjs-ng + jspp（jspp 不自带引擎，宿主负责拉取并链接） ---
+include(FetchContent)
+# jspp/quickjs 均跟踪 main 分支：首次配置时从 GitHub 拉取，此后使用本地副本构建
+# （避免每次构建都 git fetch 远端；需要更新时删除 _deps 目录重新配置即可）
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+FetchContent_Declare(
+        quickjs
+        GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
+        GIT_TAG        v0.16.2
+        GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(quickjs)
+
+set(JSPP_BACKEND quickjs CACHE STRING "" FORCE)
+FetchContent_Declare(
+        jspp
+        GIT_REPOSITORY https://github.com/engsr6982/jspp.git
+        GIT_TAG        main
+        GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(jspp)
+target_link_libraries(jspp PUBLIC qjs) # jspp 约定：引擎库由宿主 PUBLIC 链接（头文件暴露 quickjs.h）
+
 # --- 引入子目录 ---
 add_subdirectory(src-common)
 add_subdirectory(src-downloader)
 add_subdirectory(test/cli)
+add_subdirectory(test/scripting)
 
 # --- 主应用源文件列表 ---
 set(PROJECT_SOURCES
@@ -41,6 +65,30 @@ set(PROJECT_SOURCES
         src/qml/QmlSettings.h
         src/qml/QmlController.cc
         src/qml/QmlController.h
+        src/qml/QmlScriptManager.cc
+        src/qml/QmlScriptManager.h
+        src/qml/ScriptLogModel.cc
+        src/qml/ScriptLogModel.h
+        src/scripting/api/ScriptConsole.cc
+        src/scripting/api/ScriptConsole.h
+        src/scripting/api/ScriptEvents.h
+        src/scripting/api/ScriptFs.cc
+        src/scripting/api/ScriptFs.h
+        src/scripting/api/ScriptHostServices.h
+        src/scripting/api/ScriptHttp.cc
+        src/scripting/api/ScriptHttp.h
+        src/scripting/api/ScriptManifest.cc
+        src/scripting/api/ScriptManifest.h
+        src/scripting/engine/ScriptEngineState.cc
+        src/scripting/engine/ScriptEngineState.h
+        src/scripting/engine/ScriptEventBus.cc
+        src/scripting/engine/ScriptEventBus.h
+        src/scripting/engine/ScriptingBootstrap.cc
+        src/scripting/engine/ScriptingBootstrap.h
+        src/scripting/qt/ScriptQtHost.cc
+        src/scripting/qt/ScriptQtHost.h
+        src/scripting/binding/ScriptBindings.cc
+        src/scripting/binding/ScriptBindings.h
         src/utils/EnumUtils.h
         src/EdmApplication.cc
         src/EdmApplication.h
@@ -74,8 +122,10 @@ qt_add_qml_module(EasyDownloadManager
         src-ui/Src/views/ExtensionView.qml
         src-ui/Src/components/NavButton.qml
         src-ui/Src/components/TaskCard.qml
+        src-ui/Src/components/ExtensionCard.qml
         src-ui/Src/dialog/NewTaskDialog.qml
         src-ui/Src/dialog/DeleteTaskDialog.qml
+        src-ui/Src/dialog/ConsoleWindow.qml
         src-ui/Src/drawer/TaskDetailDrawer.qml
         src-ui/Src/fluent/FluButton.qml
         src-ui/Src/fluent/FluCheckBox.qml
@@ -106,6 +156,7 @@ qt_add_qml_module(EasyDownloadManager
 target_include_directories(EasyDownloadManager PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/scripting
 )
 
 # --- 编译定义 ---
@@ -137,6 +188,7 @@ target_link_libraries(EasyDownloadManager PRIVATE
         edm-common
         magic_enum::magic_enum
         SQLiteCpp
+        jspp
 )
 
 if (MSVC)

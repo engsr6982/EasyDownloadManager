@@ -1,7 +1,6 @@
 #include "EdmConfig.h"
 
 #include <qdir.h>
-#include <qmessagebox.h>
 #include <qstandardpaths.h>
 
 #include <magic_enum/magic_enum.hpp>
@@ -85,6 +84,10 @@ constexpr auto kProxyHost          = "proxy/host";                     // string
 constexpr auto kProxyPort          = "proxy/port";                     // int
 constexpr auto kProxyUser          = "proxy/user";                     // string
 constexpr auto kProxyPassword      = "proxy/password";                 // string
+constexpr auto kDisabledScripts    = "scripting/disabledScripts";      // QStringList
+constexpr auto kHookTimeoutMs      = "scripting/hookTimeoutMs";        // int
+
+constexpr auto kDefaultHookTimeoutMs = 10000;
 
 
 int EdmConfig::getThreadCount() const {
@@ -182,6 +185,34 @@ bool EdmConfig::canShowStatusNotification() const {
 
 void EdmConfig::setShowStatusNotification(bool show) {
     settings_.setValue(kStatusNotification, show);
+    settings_.sync();
+}
+
+// ---- 脚本扩展系统 ----
+
+QString EdmConfig::getScriptsDir() {
+    // 环境变量优先：便于开发/测试指向仓库内的示例脚本目录
+    if (auto const env = qEnvironmentVariable("EDM_SCRIPT_DIR"); !env.isEmpty()) {
+        return env;
+    }
+    QString path = getAppDataDir() + QStringLiteral("/scripts");
+    (void)QDir().mkpath(path);
+    return path;
+}
+
+QStringList EdmConfig::getDisabledScripts() const {
+    return settings_.value(kDisabledScripts, QStringList{}).toStringList();
+}
+
+void EdmConfig::setDisabledScripts(QStringList const& names) {
+    settings_.setValue(kDisabledScripts, names);
+    settings_.sync();
+}
+
+int EdmConfig::getScriptHookTimeoutMs() const { return settings_.value(kHookTimeoutMs, kDefaultHookTimeoutMs).toInt(); }
+
+void EdmConfig::setScriptHookTimeoutMs(int ms) {
+    settings_.setValue(kHookTimeoutMs, ms);
     settings_.sync();
 }
 

@@ -1,0 +1,9 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "download-logger",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "记录任务生命周期事件（开始/进度/完成/失败/取消），演示通知类钩子"
+}

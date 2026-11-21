@@ -1,0 +1,9 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "proxy-demo",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "为指定域名（ example.com / example.org ）自动启用代理下载"
+}

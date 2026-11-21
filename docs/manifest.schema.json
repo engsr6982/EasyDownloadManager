@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://easy-download-manager.local/schemas/manifest.schema.json",
+  "title": "EasyDownloadManager script manifest",
+  "description": "脚本扩展描述文件（<scriptsDir>/<name>/manifest.json）。校验规则与宿主 loadManifest 一致：必填字段齐全、name 与目录名一致、type 固定、entry 存在、version 为 semver。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "type", "entry", "version"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "指向本 schema 的 URL/相对路径，仅面向 IDE 校验，宿主忽略"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^(?!\\.\\.?$)[A-Za-z0-9._-]+$",
+      "minLength": 1,
+      "description": "脚本名，必须与所在文件夹名完全一致"
+    },
+    "type": {
+      "const": "edm-script",
+      "description": "固定为 edm-script"
+    },
+    "entry": {
+      "type": "string",
+      "pattern": "^(?!/)[^\\\\]+$",
+      "not": { "pattern": "\\.\\." },
+      "minLength": 1,
+      "description": "入口 ES module，相对脚本目录的 posix 路径；不允许绝对路径、反斜杠与 ..（文件需真实存在）"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(\\.\\d+)?(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "description": "语义化版本 major.minor[.patch][-prerelease][+build]"
+    },
+    "author": {
+      "type": "string",
+      "description": "作者（插件中心卡片展示）"
+    },
+    "description": {
+      "type": "string",
+      "description": "一句话描述（插件中心卡片展示，最多两行）"
+    },
+    "homepage": {
+      "type": "string",
+      "description": "主页链接"
+    },
+    "icon": {
+      "type": "string",
+      "pattern": "^(?!/)[^\\\\]+$",
+      "not": { "pattern": "\\.\\." },
+      "minLength": 1,
+      "description": "卡片显示图标，相对脚本目录的 posix 相对路径（如 assets/icon.png）；文件缺失时 UI 回退默认图标"
+    }
+  }
+}

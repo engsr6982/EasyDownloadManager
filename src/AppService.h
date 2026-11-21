@@ -14,6 +14,12 @@ class DownloadDatabase;
 struct TaskModel;
 struct TaskContext;
 
+namespace script {
+class ScriptingBootstrap;
+enum class TaskAction : int;
+struct TaskSnapshot;
+} // namespace script
+
 namespace downloader {
 class DownloadState;
 } // namespace downloader
@@ -43,6 +49,16 @@ public:
     [[nodiscard]] Dispatcher*       dispatcher() const;
     [[nodiscard]] DownloadDatabase* database() const;
 
+    /// 接线脚本扩展子系统（EdmApplication 在构造本服务后立即调用）。
+    /// 可为 null（脚本系统未启用时钩子全部直通）。
+    void                                      setScripting(script::ScriptingBootstrap* scripting);
+    [[nodiscard]] script::ScriptingBootstrap* scripting() const;
+
+    // ---- 脚本 tasks 绑定的数据源 ----
+    std::optional<script::TaskSnapshot> taskSnapshot(int taskId) const;
+    std::vector<script::TaskSnapshot>   taskSnapshots() const;
+    bool                                taskAction(int taskId, script::TaskAction action);
+
     /// 停止调度器并释放数据库（会触发现有任务进入 Paused 并持久化）。
     void shutdown();
 
@@ -58,7 +74,7 @@ public:
     Expected<> resumeTask(int taskId);
     Expected<> cancelTask(int taskId);
 
-    /// 取消（best-effort）→ 可选删除磁盘文件 → 删除数据库记录 → 发出 taskRemoved。
+    /// 取消（best-effort），可选删除磁盘文件，删除数据库记录，发出 taskRemoved。
     Expected<> deleteTask(int taskId, bool deleteFiles);
 
     /// 重新下载：摘除旧任务、清除进度文件后从零再下一次（用于已完成/失败任务）。

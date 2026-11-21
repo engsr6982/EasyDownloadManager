@@ -342,7 +342,7 @@ Item {
                                                 }
                                                 // 该线程的实时下载速率
                                                 FluText {
-                                                    text: rangeSpeedStr !== undefined ? rangeSpeedStr : "—"
+                                                    text: rangeSpeedStr !== undefined ? rangeSpeedStr : "N/A"
                                                     color: Constants.textSecondary
                                                     elide: Text.ElideRight
                                                     Layout.fillWidth: true

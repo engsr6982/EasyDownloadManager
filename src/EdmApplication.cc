@@ -5,8 +5,12 @@
 #include "FramelessShadowFilter.h"
 #include "Global.h"
 #include "qml/QmlController.h"
+#include "qml/QmlScriptManager.h"
 #include "qml/QmlSettings.h"
 #include "qml/QmlTaskListModel.h"
+#include "scripting/api/ScriptHostServices.h"
+#include "scripting/engine/ScriptingBootstrap.h"
+#include "scripting/qt/ScriptQtHost.h"
 
 #include <QApplication>
 #include <QMenu>
@@ -20,18 +24,26 @@
 #include <windows.h>
 #endif
 
+// qt_add_qml_module 生成的 C++ 类型注册入口（qmltyperegistrations.cpp，全局作用域）。
+// 模块直挂在 exe 上时 Qt 不会自动调用它，必须在加载 QML 前手动注册，
+// 否则 QML_ELEMENT 类型（ScriptLogModel 等）在 QML 中不可见。
+void qml_register_types_edm_qml_ui();
+
 namespace edm {
 
 
 struct EdmApplication::Impl {
-    std::unique_ptr<AppService>            appService_{nullptr};
-    std::unique_ptr<QQmlApplicationEngine> qmlEngine_{nullptr};
-    std::unique_ptr<QSystemTrayIcon>       trayIcon_{nullptr};
+    std::unique_ptr<AppService>                 appService_{nullptr};
+    std::unique_ptr<script::qt::QtHostServices> scriptServices_{nullptr};
+    std::unique_ptr<script::ScriptingBootstrap> scripting_{nullptr};
+    std::unique_ptr<QQmlApplicationEngine>      qmlEngine_{nullptr};
+    std::unique_ptr<QSystemTrayIcon>            trayIcon_{nullptr};
 
     // QML bridge objects (owned by the application)
     QmlTaskListModel* taskListModel_{nullptr};
     QmlSettings*      settingsModel_{nullptr};
     QmlController*    controller_{nullptr};
+    QmlScriptManager* scriptManager_{nullptr};
 
     QQuickWindow* mainWindow_{nullptr};
 
@@ -42,10 +54,17 @@ struct EdmApplication::Impl {
         // 1. 应用服务：数据库 + 下载引擎 + 观察器接线
         appService_ = std::make_unique<AppService>();
 
-        // 2. QML engine
+        // 2. 脚本扩展子系统：组装宿主服务并接线（脚本加载放到 QML 就绪后，避免拖慢首帧）
+        scripting_ = std::make_unique<script::ScriptingBootstrap>();
+        appService_->setScripting(scripting_.get());
+
+        // 3. QML engine
         _initializeQml();
 
-        // 3. System tray icon
+        // 4. 脚本子系统初始化：扫描脚本目录并加载启用脚本
+        _initializeScripting();
+
+        // 5. System tray icon
         _initSystemTrayIcon();
     }
 
@@ -68,7 +87,7 @@ struct EdmApplication::Impl {
         //
         // 关键：Qt 在 FramelessWindowHint 下把窗口建成 WS_POPUP，而 DWM 只对
         // "普通顶层窗口"播放最小化/还原动画，弹窗式窗口是直接消失的。
-        // 去掉 WS_POPUP、换成 WS_OVERLAPPEDWINDOW，外观不受影响——
+        // 去掉 WS_POPUP、换成 WS_OVERLAPPEDWINDOW，外观不受影响。
         // 非客户区由 FramelessShadowFilter 的 WM_NCCALCSIZE 处理为 0，标题栏不会画出来。
         LONG_PTR style  = GetWindowLongPtr(hwnd, GWL_STYLE);
         style          &= ~static_cast<LONG_PTR>(WS_POPUP);
@@ -105,15 +124,21 @@ struct EdmApplication::Impl {
 
         settingsModel_ = new QmlSettings();
         controller_    = new QmlController();
+        scriptManager_ = new QmlScriptManager();
+        scriptManager_->setBootstrap(scripting_.get());
 
         // The objects are parented to the engine for cleanup.
         taskListModel_->setParent(qmlEngine_.get());
         settingsModel_->setParent(qmlEngine_.get());
         controller_->setParent(qmlEngine_.get());
+        scriptManager_->setParent(qmlEngine_.get());
 
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "TaskListModel", taskListModel_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "SettingsModel", settingsModel_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "AppController", controller_);
+        qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "ScriptManager", scriptManager_);
+
+        qml_register_types_edm_qml_ui();
 
         QObject::connect(
             qmlEngine_.get(),
@@ -154,6 +179,51 @@ struct EdmApplication::Impl {
         mainWindow_->showNormal();
         mainWindow_->raise();
         mainWindow_->requestActivate();
+    }
+
+    /// 组装脚本宿主服务（Qt 适配 + 托盘通知/宿主日志/任务数据源），并初始化脚本子系统
+    void _initializeScripting() {
+        scriptServices_ = std::make_unique<script::qt::QtHostServices>(QCoreApplication::instance());
+        auto& services  = *scriptServices_;
+
+        services.scriptsDirValue    = EdmConfig::getScriptsDir().toStdString();
+        services.appDataDirValue    = EdmConfig::getAppDataDir().toStdString();
+        services.hookTimeoutMsValue = EdmConfig::getInstance().getScriptHookTimeoutMs();
+        services.userAgentValue     = EdmConfig::getInstance().getUserAgent().toStdString();
+
+        services.disabledScriptsHandler = [] {
+            auto const               q = EdmConfig::getInstance().getDisabledScripts();
+            std::vector<std::string> out;
+            out.reserve(static_cast<std::size_t>(q.size()));
+            for (auto const& s : q) out.push_back(s.toStdString());
+            return out;
+        };
+        services.setDisabledScriptsHandler = [](std::vector<std::string> const& names) {
+            QStringList q;
+            q.reserve(static_cast<qsizetype>(names.size()));
+            for (auto const& name : names) q.append(QString::fromStdString(name));
+            EdmConfig::getInstance().setDisabledScripts(q);
+        };
+        services.warningHandler = [](std::string const& message) { qWarning().noquote() << message.c_str(); };
+
+        auto* service               = appService_.get();
+        services.taskGetHandler     = [service](int id) { return service->taskSnapshot(id); };
+        services.taskGetAllHandler  = [service] { return service->taskSnapshots(); };
+        services.taskControlHandler = [service](int id, script::TaskAction action) {
+            return service->taskAction(id, action);
+        };
+
+        services.notifyHandler =
+            [this](script::NotifyLevel level, std::string const& title, std::string const& message) {
+                if (!trayIcon_ || !QSystemTrayIcon::supportsMessages()) return;
+                auto const icon = level == script::NotifyLevel::Error
+                                    ? QSystemTrayIcon::Critical
+                                    : (level == script::NotifyLevel::Warning ? QSystemTrayIcon::Warning
+                                                                             : QSystemTrayIcon::Information);
+                trayIcon_->showMessage(QString::fromStdString(title), QString::fromStdString(message), icon, 5000);
+            };
+
+        scripting_->initialize(scriptServices_.get());
     }
 
     void _initSystemTrayIcon() {
@@ -245,16 +315,22 @@ struct EdmApplication::Impl {
 
         trayIcon_.reset();
         mainWindow_ = nullptr;
+
+        // 先卸载脚本引擎（onDisable 回调需要 appService/db 仍可用），再关闭 QML 与服务
+        scripting_->shutdown();
+        scriptServices_.reset();
         qmlEngine_.reset();
 
         // The objects are parented to the engine for cleanup.
         taskListModel_ = nullptr;
         settingsModel_ = nullptr;
         controller_    = nullptr;
+        scriptManager_ = nullptr;
 
         // 先停调度器并释放数据库（任务进入 Paused 并持久化），再销毁服务。
         appService_->shutdown();
         appService_.reset();
+        scripting_.reset();
     }
 };
 

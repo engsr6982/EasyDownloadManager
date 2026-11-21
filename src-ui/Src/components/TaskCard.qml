@@ -120,7 +120,7 @@ Item {
                     Text {
                         text: {
                             var s = cardRoot.statusStr ?? "N/A";
-                            // C++ sends "Finished" — map locally for display readability
+                            // 宿主下发 "Finished"，本地映射为可读文案
                             if (s === "Finished")
                                 return qsTr("已完成");
                             if (s === "Running")
@@ -176,7 +176,7 @@ Item {
                     FluIconButton {
                         text: {
                             var s = cardRoot.statusStr;
-                            // 等待中(Pending)尚未开始 → 显示"继续"；准备中(Preparing)已在跑 → 显示"暂停"
+                            // 等待中(Pending)尚未开始显示"继续"；准备中(Preparing)已在跑显示"暂停"
                             if (s === "Running" || s === "Preparing")
                                 return "\uf5a2";  // pause
                             return "\uf606"; // play

@@ -57,7 +57,7 @@ QVariant QmlRangeModel::data(QModelIndex const& index, int role) const {
     case RangeSizeStrRole:
         return QString::fromStdString(utils::FileSize2String(static_cast<FileSize>(row.sizeTotal)));
     case RangeSpeedStrRole:
-        if (row.speed <= 0.0) return QStringLiteral("—");
+        if (row.speed <= 0.0) return QStringLiteral("N/A");
         return QString::fromStdString(utils::FileSize2String(static_cast<FileSize>(row.speed))) + QStringLiteral("/s");
     default:
         return {};
@@ -274,7 +274,7 @@ void QmlTaskDetail::setLiveState(downloader::DownloadState const* state, TaskSta
             statusStr_ = newStatus;
             changed    = true;
         }
-        rangesModel_->update(state); // 无实时状态 → 线程列表置为非活跃（N/A 占位）
+        rangesModel_->update(state); // 无实时状态时线程列表置为非活跃（N/A 占位）
         if (changed) emit liveStateChanged();
         return;
     }

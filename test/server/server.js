@@ -61,7 +61,7 @@ const precomputeRangeMd5s = (fileSize, threads = 8) => {
   const targetChunks = Math.max(threads * kChunkFanout, 1);
   const chunkSize = Math.min(Math.max(Math.floor(fileSize / targetChunks), kMinChunkSize), kMaxChunkSize);
 
-  const rangeMd5s = new Map(); // key: "start-end" → md5 hex
+  const rangeMd5s = new Map(); // key: "start-end" 存 md5 hex
   let offset = 0;
 
   while (offset < fileSize) {
@@ -101,12 +101,12 @@ const { rangeMd5s, chunkSize: preChunkSize, rangeCount } = precomputeRangeMd5s(s
 console.log(`Pre-computed ${rangeCount} range MD5s (chunkSize=${preChunkSize})`);
 console.log("");
 
-// ── /health ──────────────────────────────────────────────────────────
+// -- /health ----------------------------------------------------------
 app.get("/health", (req, res) => {
   res.json({ ok: true, size, fileName });
 });
 
-// ── /checksum ────────────────────────────────────────────────────────
+// -- /checksum --------------------------------------------------------
 // 返回预计算的全文件 MD5 和各 range MD5，方便客户端验证。
 app.get("/checksum", (req, res) => {
   const ranges = {};
@@ -123,7 +123,7 @@ app.get("/checksum", (req, res) => {
   });
 });
 
-// ── 共享的 Range 解析与发送逻辑 ──────────────────────────────────────
+// -- 共享的 Range 解析与发送逻辑 --------------------------------------
 function handleFileRequest(req, res, requireRange) {
   console.log(`\n--- Request: ${req.method} ${req.url} ---`);
   console.log("Request Headers:", JSON.stringify(req.headers, null, 2));
@@ -179,7 +179,7 @@ function handleFileRequest(req, res, requireRange) {
     return;
   }
 
-  // 合法分片 → 206
+  // 合法分片返回 206
   const contentLength = end - start + 1;
   res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
   res.setHeader("Content-Length", String(contentLength));
@@ -188,15 +188,15 @@ function handleFileRequest(req, res, requireRange) {
   sendVirtualFile(req, res, start, end);
 }
 
-// ── /file ─────────────────────────────────────────────────────────────
+// -- /file -------------------------------------------------------------
 // 通用端点：兼容无 Range（200）和有 Range（206）。
 app.get("/file", (req, res) => handleFileRequest(req, res, false));
 
-// ── /file-range ───────────────────────────────────────────────────────
+// -- /file-range -------------------------------------------------------
 // 多线程下载专用：强制要求 Range 头。
 app.get("/file-range", (req, res) => handleFileRequest(req, res, true));
 
-// ── sendVirtualFile ───────────────────────────────────────────────────
+// -- sendVirtualFile ---------------------------------------------------
 // 传输虚拟文件数据。完成后将在线计算的 MD5 与预计算值比对。
 function sendVirtualFile(req, res, start, end) {
   let current = start;

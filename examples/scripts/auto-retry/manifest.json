@@ -1,0 +1,10 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "auto-retry",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "任务失败后按指数退避自动重试（上限 3 次），放弃时托盘告警",
+    "icon": "icon.png"
+}

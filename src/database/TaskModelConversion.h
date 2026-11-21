@@ -5,6 +5,9 @@
 #include "downloader/DownloadTypes.h"
 #include "utils/Utils.h"
 
+#include <glaze/glaze.hpp>
+
+#include <map>
 #include <memory>
 #include <string>
 
@@ -49,6 +52,18 @@ toTaskContext(std::shared_ptr<TaskModel> const& model, std::shared_ptr<TaskHeade
         if (!header->cookie.empty()) cfg->cookie = header->cookie;
     }
 
+    // 脚本注入的自定义请求头（JSON 对象 -> "Key: Value" 向量）
+    if (!model->customHeaders.empty()) {
+        std::map<std::string, std::string> custom;
+        if (glz::read_json(custom, model->customHeaders)) {
+            qWarning() << "AppService: failed to parse customHeaders for task" << model->id;
+        } else {
+            for (auto const& [key, value] : custom) {
+                cfg->headers.push_back(key + ": " + value);
+            }
+        }
+    }
+
     return cfg;
 }
 
@@ -61,6 +76,7 @@ inline void applyContextToModel(TaskModel& model, TaskContext const& cfg) {
     model.bandLimit   = cfg.bandLimit;
     model.threadCount = static_cast<int>(cfg.threads);
     model.userAgent   = cfg.userAgent;
+    model.url         = cfg.url; // 脚本钩子（beforeFetchMeta）可能改写过 URL
 
     // 将 FetchedMetaInfo 中的信息同步到 TaskModel
     if (cfg.metaInfo) {
@@ -103,6 +119,25 @@ inline void applyContextToModel(TaskModel& model, TaskContext const& cfg) {
         model.fileName = cfg.fileName;
         // 分类跟随最终文件名解析
         model.category = utils::resolveFileCategory(model.fileName);
+    }
+
+    // 脚本注入的自定义请求头（"Key: Value" 向量 -> JSON 对象），断点续传后仍生效
+    {
+        std::map<std::string, std::string> custom;
+        for (auto const& line : cfg.headers) {
+            auto const sep = line.find(':');
+            if (sep == std::string::npos) continue;
+            auto key = line.substr(0, sep);
+            auto val = line.substr(sep + 1);
+            if (!val.empty() && val.front() == ' ') val.erase(0, 1);
+            custom[std::move(key)] = std::move(val);
+        }
+        if (custom.empty()) {
+            model.customHeaders.clear();
+        } else {
+            auto buffer         = glz::write_json(custom);
+            model.customHeaders = buffer ? std::move(*buffer) : std::string{};
+        }
     }
 }
 
