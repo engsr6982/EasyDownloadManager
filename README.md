@@ -26,4 +26,4 @@ cmake --build build
 
 - [脚本扩展开发](docs/scripting.md)
 - [脚本 API 类型声明](docs/edm.d.ts)
-- [实现交接记录](docs/scripting-handover.md)
+- [Agent 与维护者指引](AGENTS.md)

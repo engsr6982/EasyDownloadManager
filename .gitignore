@@ -97,3 +97,6 @@ cmake-build-*/
 .tmp
 /bin
 /_deps
+
+# Agent tool workspace
+.zcode/
