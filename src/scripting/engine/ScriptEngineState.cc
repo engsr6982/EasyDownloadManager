@@ -26,6 +26,7 @@ EngineOwnData::~EngineOwnData() {
     if (bootstrap) {
         bootstrap->eventBus()->removeEngineListeners(state);
     }
+    unregisterAllCommands();
     stopAllTimers();
     disposeTasks();
     abortPendingCalls();
@@ -47,13 +48,49 @@ bool EngineOwnData::removeTimer(std::int64_t id) {
     return false;
 }
 
-void EngineOwnData::stopAllTimers() {
-    if (state && state->services()) {
-        for (auto const handle : timerIds) {
-            state->services()->stopTimer(handle);
-        }
+std::int64_t EngineOwnData::addCommand(
+    std::string const&           source,
+    std::string const&           title,
+    std::string const&           description,
+    std::function<void()> const& fn
+) {
+    if (!state || !state->services()) return -1;
+    auto const handle = state->services()->registerCommand(source, title, description, fn);
+    if (handle >= 0) commandIds.insert(handle);
+    return handle;
+}
+
+bool EngineOwnData::removeCommand(std::int64_t id) {
+    auto const n = commandIds.erase(id);
+    if (n > 0 && state && state->services()) {
+        state->services()->unregisterCommand(id);
+        return true;
     }
-    timerIds.clear();
+    return false;
+}
+
+void EngineOwnData::unregisterAllCommands() {
+    if (commandIds.empty()) return; // 幂等：空集直接返回，支持重复清理
+    // 迭代器安全：先整体摘除句柄再逐个注销；清理期间的重入（脚本侧 unregister）
+    // 只会命中空集，不会使本次迭代失效，也不会重复注销同一句柄
+    std::set<std::int64_t> pending;
+    pending.swap(commandIds);
+    if (!state || !state->services()) return;
+    for (auto const handle : pending) {
+        state->services()->unregisterCommand(handle);
+    }
+}
+
+void EngineOwnData::stopAllTimers() {
+    if (timerIds.empty()) return; // 幂等：空集直接返回，支持重复清理
+    // 迭代器安全：先整体摘除句柄再逐个注销；清理期间的重入（脚本侧 removeTimer）
+    // 只会命中空集，不会使本次迭代失效
+    std::set<std::int64_t> pending;
+    pending.swap(timerIds);
+    if (!state || !state->services()) return;
+    for (auto const handle : pending) {
+        state->services()->stopTimer(handle);
+    }
 }
 
 std::int64_t EngineOwnData::registerPendingCall(std::shared_ptr<IPendingScriptCall> call) {

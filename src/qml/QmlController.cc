@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QIcon>
 #include <QQuickWindow>
 #include <QUrl>
 #include <qstringview.h>
@@ -60,6 +61,14 @@ QString QmlController::removeFileUrlPrefix(QString const& url) {
     // Since QUrl can't be called directly in QML,
     //  here's a helper to convert file URLs in QML
     return QUrl{url}.toLocalFile();
+}
+
+void QmlController::setWindowIcon(QWindow* window, QString const& iconPath) {
+    if (window) window->setIcon(QIcon(iconPath));
+}
+
+void QmlController::openConsole(QString const& name, QString const& version) {
+    emit consoleOpenRequested(name, version);
 }
 
 void QmlController::installWindowFrameless(QWindow* window) {

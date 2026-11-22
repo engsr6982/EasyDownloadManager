@@ -36,9 +36,16 @@ public:
     bool                                      taskControl(int id, TaskAction action) override;
     std::int64_t startTimer(std::function<void()> const& fn, int ms, bool singleShot) override;
     void         stopTimer(std::int64_t handle) override;
-    void         setPumpHandler(std::function<void()> const& fn, int intervalMs) override;
-    void         notify(NotifyLevel level, std::string const& title, std::string const& message) override;
-    void         logWarning(std::string const& message) override;
+    std::int64_t registerCommand(
+        std::string const&           source,
+        std::string const&           title,
+        std::string const&           description,
+        std::function<void()> const& fn
+    ) override;
+    void unregisterCommand(std::int64_t handle) override;
+    void setPumpHandler(std::function<void()> const& fn, int intervalMs) override;
+    void notify(NotifyLevel level, std::string const& title, std::string const& message) override;
+    void logWarning(std::string const& message) override;
 
     // ---- 宿主填充的环境值 ----
     std::string scriptsDirValue;
@@ -47,11 +54,15 @@ public:
     int         hookTimeoutMsValue{10000};
 
     // ---- 宿主回调 ----
-    std::function<std::vector<std::string>()>                                disabledScriptsHandler;
-    std::function<void(std::vector<std::string> const&)>                     setDisabledScriptsHandler;
-    std::function<std::optional<TaskSnapshot>(int)>                          taskGetHandler;
-    std::function<std::vector<TaskSnapshot>()>                               taskGetAllHandler;
-    std::function<bool(int, TaskAction)>                                     taskControlHandler;
+    std::function<std::vector<std::string>()>            disabledScriptsHandler;
+    std::function<void(std::vector<std::string> const&)> setDisabledScriptsHandler;
+    std::function<std::optional<TaskSnapshot>(int)>      taskGetHandler;
+    std::function<std::vector<TaskSnapshot>()>           taskGetAllHandler;
+    std::function<bool(int, TaskAction)>                 taskControlHandler;
+    std::function<
+        std::int64_t(std::string const&, std::string const&, std::string const&, std::function<void()> const&)>
+                                                                             commandRegisterHandler;
+    std::function<void(std::int64_t)>                                        commandUnregisterHandler;
     std::function<void(NotifyLevel, std::string const&, std::string const&)> notifyHandler;
     std::function<void(std::string const&)>                                  warningHandler;
 

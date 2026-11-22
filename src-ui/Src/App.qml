@@ -53,6 +53,34 @@ Window {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
 
+            // 命令面板
+            Button {
+                id: btnPalette
+                width: titlebar.height
+                height: titlebar.height
+                flat: true
+                background: Rectangle {
+                    color: btnPalette.hovered ? Constants.navHover : "transparent"
+                }
+                contentItem: Text {
+                    text: "" // key_command
+                    font.family: Constants.iconFontFamily
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: Constants.textPrimary
+                }
+                onClicked: commandPalette.toggle()
+            }
+
+            // 功能区与窗口操作的分隔符
+            Rectangle {
+                width: 1
+                height: 20
+                anchors.verticalCenter: parent.verticalCenter
+                color: Constants.borderSubtle
+            }
+
             // 最小化
             Button {
                 id: btnMin
@@ -194,6 +222,39 @@ Window {
                     source: Qt.resolvedUrl("./views/TaskListView.qml") // 首次加载使用第一屏视图
                 }
             }
+        }
+    }
+
+    // 虚拟控制台窗口（挂在根级，切换视图不影响其存活；数据按脚本切换）
+    ConsoleWindow {
+        id: consoleWindow
+    }
+
+    // 命令面板：Ctrl+Shift+P 或标题栏按钮呼出，Esc 或点击遮罩关闭
+    CommandPalette {
+        id: commandPalette
+        parent: Overlay.overlay
+    }
+
+    Shortcut {
+        sequences: ["Ctrl+Shift+P"]
+        context: Qt.WindowShortcut
+        onActivated: commandPalette.toggle()
+    }
+
+    Shortcut {
+        sequences: ["Esc"]
+        enabled: commandPalette.visible
+        onActivated: commandPalette.close()
+    }
+
+    Connections {
+        target: AppController
+        function onNewTaskRequested() {
+            globalNewTaskDialog.open();
+        }
+        function onConsoleOpenRequested(name, version) {
+            consoleWindow.openFor(name, version);
         }
     }
 

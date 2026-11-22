@@ -39,10 +39,17 @@ Window {
     // 不提供最小化：无边框窗口的最小化动画由系统随意摆放
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowSystemMenuHint
     color: Constants.windowBase
+    // 任务栏标题：随脚本切换同步更新
+    title: scriptName.length > 0
+           ? qsTr("虚拟控制台 - %1%2").arg(scriptName)
+                 .arg(scriptVersion.length > 0 ? "  v" + scriptVersion : "")
+           : qsTr("虚拟控制台")
 
     Component.onCompleted: {
         consoleRoot.transientParent = null; // 覆盖组件完成期 Qt 的自动父窗口指派
         AppController.installWindowFrameless(consoleRoot);
+        // C++ 侧 QIcon/QFile 按文件名处理，资源路径须用 ":/" 短形式而非 "qrc:/" URL 形式
+        AppController.setWindowIcon(consoleRoot, ":/assets/icons/console.png");
     }
 
     function openFor(name, version) {

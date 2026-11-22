@@ -1,0 +1,9 @@
+{
+    "$schema": "../../../docs/manifest.schema.json",
+    "name": "command-demo",
+    "type": "edm-script",
+    "entry": "index.js",
+    "version": "1.0.0",
+    "author": "engsr6982",
+    "description": "向命令面板注册脚本命令（注册/注销演示）"
+}

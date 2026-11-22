@@ -49,6 +49,19 @@ bool QtHostServices::taskControl(int id, TaskAction action) {
     return taskControlHandler ? taskControlHandler(id, action) : false;
 }
 
+std::int64_t QtHostServices::registerCommand(
+    std::string const&           source,
+    std::string const&           title,
+    std::string const&           description,
+    std::function<void()> const& fn
+) {
+    return commandRegisterHandler ? commandRegisterHandler(source, title, description, fn) : -1;
+}
+
+void QtHostServices::unregisterCommand(std::int64_t handle) {
+    if (commandUnregisterHandler) commandUnregisterHandler(handle);
+}
+
 std::int64_t QtHostServices::startTimer(std::function<void()> const& fn, int ms, bool singleShot) {
     auto* timer = new QTimer(timerHost_->owner);
     timer->setSingleShot(singleShot);

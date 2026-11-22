@@ -209,6 +209,17 @@ declare module "edm" {
         unlisten(id: ListenerId): boolean;
     };
 
+    /**
+     * 命令面板。注册的命令显示在主窗口命令面板（Ctrl+Shift+P 呼出），
+     * handler 在主线程执行；引擎卸载时全部自动注销。
+     */
+    export const commands: {
+        /** @returns 句柄，供 unregister */
+        register(title: string, description: string, handler: () => void): number;
+        /** @returns 是否移除成功 */
+        unregister(id: number): boolean;
+    };
+
     /** 日志输出（写入脚本自身的虚拟控制台；"{}" 占位符依次替换后续参数） */
     export const logger: {
         info(fmt: string, ...args: unknown[]): void;

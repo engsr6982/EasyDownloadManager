@@ -45,7 +45,8 @@ T.TextField {
         font: control.font
         color: control.placeholderTextColor
         verticalAlignment: control.verticalAlignment
-        visible: control.text.length === 0
+        // 含 IME 预编辑文本判定：组合输入期间 text 仍为空，占位符必须隐藏避免重叠
+        visible: control.text.length === 0 && control.preeditText.length === 0
 
         x: control.leftPadding
         y: control.topPadding

@@ -99,8 +99,8 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
 
 基于生命周期钩子的扩展系统：脚本运行于每脚本独立的 jspp(QuickJS) 引擎，监听下载引擎事件，
 经改写事件对象控制下载行为或接收通知。已实现 11 个钩子（可变钩子支持同步与 Promise 异步改写，
-取消经 cancel(reason) 贯通任务终态）、events/logger/tasks/fs/path/http/utils/constants/notify
-与顶层定时器绑定、插件中心、虚拟控制台、manifest 校验与导入。
+取消经 cancel(reason) 贯通任务终态）、events/logger/tasks/fs/path/http/utils/commands/constants/notify
+与顶层定时器绑定、插件中心、命令面板、虚拟控制台、manifest 校验与导入。
 
 - `src/scripting/api/`：脚本可见的 C++ 接口与数据模型（Console/Events/Manifest/Fs/Http/
   HostServices），Qt-free
@@ -205,6 +205,9 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
     成对核对，cancelReason 方法与 cancel 可选参数曾同时缺失。
 18. `_deps` 内的 FetchContent 副本被中断的构建/配置破坏后（如半克隆、.git 缺失），增量
     configure 无法自愈；删 `_deps` 重新配置，GitHub 拉取需走代理环境变量。
+20. C++ 侧 `QIcon`/`QFile` 按文件名处理资源路径，只认 ":/..." 短形式；"qrc:/..." 两斜杠形式
+    只有 QML URL 层能解析，C++ 传入结果为空且无报错。QML `Window` 类型无 icon 属性，须从
+    C++ `setWindowIcon` 设置。
 19. QML 侧无边框窗口（`installWindowFrameless`）：窗口隐藏时 Qt 可能销毁平台窗口（HWND 变化），
     chrome 须在每次 `visibleChanged(true)` 时重新施加，否则重开窗口阴影丢失；动态改 flags
     （如 StaysOnTop）后需 hide 加 show 才生效。

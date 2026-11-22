@@ -597,6 +597,26 @@ std::vector<script::TaskSnapshot> AppService::taskSnapshots() const {
     return result;
 }
 
+int AppService::pauseAllTasks() {
+    int affected = 0;
+    for (auto const& snapshot : taskSnapshots()) {
+        if (snapshot.state == TaskState::Running || snapshot.state == TaskState::Preparing) {
+            if (taskAction(snapshot.id, script::TaskAction::Pause)) ++affected;
+        }
+    }
+    return affected;
+}
+
+int AppService::resumePausedTasks() {
+    int affected = 0;
+    for (auto const& snapshot : taskSnapshots()) {
+        if (snapshot.state == TaskState::Paused) {
+            if (taskAction(snapshot.id, script::TaskAction::Resume)) ++affected;
+        }
+    }
+    return affected;
+}
+
 bool AppService::taskAction(int taskId, script::TaskAction action) {
     Expected<> result = std::invoke([&]() -> Expected<> {
         switch (action) {

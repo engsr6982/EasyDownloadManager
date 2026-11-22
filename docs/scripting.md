@@ -103,6 +103,7 @@ export default class MyScript {
 | 成员 | 说明 |
 |---|---|
 | `events` | `listen(event, handler, priority?)` 返回监听器 id，`unlisten(id)` 移除 |
+| `commands` | `register(title, description, handler)` 注册命令面板条目并返回句柄，`unregister(id)` 移除；引擎卸载时自动清理 |
 | `logger` | `info/warn/error/debug(fmt, ...args)`，`{}` 占位符格式化，写入虚拟控制台 |
 | `tasks` | `get(id)` / `getAll()` / `pause(id)` / `resume(id)` / `cancel(id)` |
 | `fs` / `path` | 文本文件读写与 posix 路径工具；相对路径以脚本目录为根 |

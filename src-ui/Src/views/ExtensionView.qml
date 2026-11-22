@@ -16,11 +16,6 @@ Item {
     id: root
     anchors.fill: parent
 
-    // 虚拟控制台（独立非模态窗口，按脚本切换数据源）
-    ConsoleWindow {
-        id: consoleWindow
-    }
-
     // 导入脚本包（选择包含 manifest.json 的目录）
     FolderDialog {
         id: importPicker
@@ -49,7 +44,7 @@ Item {
     }
 
     function openConsole(name, version) {
-        consoleWindow.openFor(name, version);
+        AppController.openConsole(name, version);
     }
 
     ColumnLayout {

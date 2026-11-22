@@ -4,6 +4,7 @@
 #include "EdmConfig.h"
 #include "FramelessShadowFilter.h"
 #include "Global.h"
+#include "qml/CommandRegistry.h"
 #include "qml/QmlController.h"
 #include "qml/QmlScriptManager.h"
 #include "qml/QmlSettings.h"
@@ -44,6 +45,7 @@ struct EdmApplication::Impl {
     QmlSettings*      settingsModel_{nullptr};
     QmlController*    controller_{nullptr};
     QmlScriptManager* scriptManager_{nullptr};
+    CommandRegistry*  commandRegistry_{nullptr};
 
     QQuickWindow* mainWindow_{nullptr};
 
@@ -126,6 +128,9 @@ struct EdmApplication::Impl {
         controller_    = new QmlController();
         scriptManager_ = new QmlScriptManager();
         scriptManager_->setBootstrap(scripting_.get());
+        commandRegistry_ = new CommandRegistry(nullptr);
+
+        _registerBuiltinCommands();
 
         // The objects are parented to the engine for cleanup.
         taskListModel_->setParent(qmlEngine_.get());
@@ -137,8 +142,10 @@ struct EdmApplication::Impl {
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "SettingsModel", settingsModel_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "AppController", controller_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "ScriptManager", scriptManager_);
+        qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "CommandRegistry", commandRegistry_);
 
         qml_register_types_edm_qml_ui();
+
 
         QObject::connect(
             qmlEngine_.get(),
@@ -181,6 +188,51 @@ struct EdmApplication::Impl {
         mainWindow_->requestActivate();
     }
 
+    /// 注册命令面板内置命令（脚本子系统接入前完成，保证面板打开时即可用）
+    void _registerBuiltinCommands() {
+        auto* commands = commandRegistry_;
+        auto* service  = appService_.get();
+        auto* ctrl     = controller_;
+        auto* scripts  = scriptManager_;
+
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("暂停所有任务"),
+            QStringLiteral("暂停全部进行中的下载任务"),
+            [service] { service->pauseAllTasks(); }
+        );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("恢复所有暂停的任务"),
+            QStringLiteral("继续全部处于暂停状态的下载任务"),
+            [service] { service->resumePausedTasks(); }
+        );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("新建任务"),
+            QStringLiteral("打开新建任务对话框"),
+            [ctrl] { emit ctrl->newTaskRequested(); }
+        );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("打开脚本目录"),
+            QStringLiteral("在文件管理器中打开脚本扩展目录"),
+            [scripts] { scripts->openScriptsDir(); }
+        );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("全部重载脚本"),
+            QStringLiteral("重新加载全部脚本扩展"),
+            [scripts] { scripts->reloadAll(); }
+        );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("打开下载目录"),
+            QStringLiteral("在文件管理器中打开默认下载保存目录"),
+            [ctrl] { ctrl->openFolder(EdmConfig::getDefaultSaveDir()); }
+        );
+    }
+
     /// 组装脚本宿主服务（Qt 适配 + 托盘通知/宿主日志/任务数据源），并初始化脚本子系统
     void _initializeScripting() {
         scriptServices_ = std::make_unique<script::qt::QtHostServices>(QCoreApplication::instance());
@@ -205,6 +257,22 @@ struct EdmApplication::Impl {
             EdmConfig::getInstance().setDisabledScripts(q);
         };
         services.warningHandler = [](std::string const& message) { qWarning().noquote() << message.c_str(); };
+
+        auto* commands                  = commandRegistry_;
+        services.commandRegisterHandler = [commands](
+                                              std::string const&    source,
+                                              std::string const&    title,
+                                              std::string const&    description,
+                                              std::function<void()> fn
+                                          ) {
+            return commands->addCommand(
+                QString::fromStdString(source),
+                QString::fromStdString(title),
+                QString::fromStdString(description),
+                std::move(fn)
+            );
+        };
+        services.commandUnregisterHandler = [commands](std::int64_t handle) { commands->removeCommand(handle); };
 
         auto* service               = appService_.get();
         services.taskGetHandler     = [service](int id) { return service->taskSnapshot(id); };
@@ -322,10 +390,11 @@ struct EdmApplication::Impl {
         qmlEngine_.reset();
 
         // The objects are parented to the engine for cleanup.
-        taskListModel_ = nullptr;
-        settingsModel_ = nullptr;
-        controller_    = nullptr;
-        scriptManager_ = nullptr;
+        taskListModel_   = nullptr;
+        settingsModel_   = nullptr;
+        controller_      = nullptr;
+        scriptManager_   = nullptr;
+        commandRegistry_ = nullptr;
 
         // 先停调度器并释放数据库（任务进入 Paused 并持久化），再销毁服务。
         appService_->shutdown();

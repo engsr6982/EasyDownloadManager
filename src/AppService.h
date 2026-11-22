@@ -57,7 +57,10 @@ public:
     // ---- 脚本 tasks 绑定的数据源 ----
     std::optional<script::TaskSnapshot> taskSnapshot(int taskId) const;
     std::vector<script::TaskSnapshot>   taskSnapshots() const;
-    bool                                taskAction(int taskId, script::TaskAction action);
+    /// 批量操作：返回受影响的任务数量
+    int  pauseAllTasks();
+    int  resumePausedTasks();
+    bool taskAction(int taskId, script::TaskAction action);
 
     /// 停止调度器并释放数据库（会触发现有任务进入 Paused 并持久化）。
     void shutdown();

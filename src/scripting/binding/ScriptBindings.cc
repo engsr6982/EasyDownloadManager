@@ -370,6 +370,44 @@ jspp::Local<jspp::Value> implUnlisten(jspp::Arguments const& args) {
     return jspp::Boolean::newBoolean(currentContext().bootstrap->eventBus()->removeListener(id));
 }
 
+jspp::Local<jspp::Value> implRegisterCommand(jspp::Arguments const& args) {
+    if (args.length() < 3 || !args[0].isString() || !args[1].isString() || !args[2].isFunction()) {
+        throw jspp::Exception(
+            "commands.register(title, description, handler) requires (string, string, function)",
+            jspp::Exception::Type::TypeError
+        );
+    }
+    auto& data = currentContext();
+    if (!data.state->services()) {
+        throw jspp::Exception("command registry unavailable", jspp::Exception::Type::ReferenceError);
+    }
+
+    auto const title       = args[0].asString().getValue();
+    auto const description = args[1].asString().getValue();
+    auto const tracked     = jspp::TrackedGlobal<jspp::Function>::create(args[2].asFunction());
+    auto*      state       = data.state;
+
+    auto const handle = data.addCommand(state->name(), title, description, [state, tracked] {
+        invokeProtected(state, [state, tracked] {
+            if (tracked->global().isEmpty()) return; // 引擎已销毁（TrackedGlobal 自动置空）
+            (void)tracked->global().get().call({}, {});
+        });
+    });
+    if (handle < 0) {
+        throw jspp::Exception("commands.register: registry unavailable", jspp::Exception::Type::ReferenceError);
+    }
+    return jspp::Number::newNumber(static_cast<int32_t>(handle));
+}
+
+jspp::Local<jspp::Value> implUnregisterCommand(jspp::Arguments const& args) {
+    if (args.length() < 1 || (!args[0].isNumber() && !args[0].isBigInt())) {
+        throw jspp::Exception("commands.unregister(id) requires a handle", jspp::Exception::Type::TypeError);
+    }
+    std::int64_t const handle =
+        args[0].isNumber() ? static_cast<std::int64_t>(args[0].asNumber().getInt32()) : args[0].asBigInt().getInt64();
+    return jspp::Boolean::newBoolean(currentContext().removeCommand(handle));
+}
+
 jspp::Local<jspp::Value> implNotify(jspp::Arguments const& args) {
     if (args.length() < 1 || !args[0].isString()) {
         throw jspp::Exception("notify(message, options?) requires a message string", jspp::Exception::Type::TypeError);
@@ -546,6 +584,12 @@ jspp::ModuleMeta const& edmModule() {
                                           .build();
 
     // ---- 静态类 ----
+    static auto const kCommandsMeta =
+        jspp::binding::defClass<void>("commands")
+            .func("register", [](jspp::Arguments const& args) { return implRegisterCommand(args); })
+            .func("unregister", [](jspp::Arguments const& args) { return implUnregisterCommand(args); })
+            .build();
+
     static auto const kEventsMeta =
         jspp::binding::defClass<void>("events")
             .func("listen", [](jspp::Arguments const& args) { return implListen(args); })
@@ -768,6 +812,7 @@ jspp::ModuleMeta const& edmModule() {
 
     static auto const module =
         jspp::binding::defModule("edm")
+            .export_class(kCommandsMeta)
             .export_class(kEventsMeta)
             .export_class(kLoggerMeta)
             .export_function(

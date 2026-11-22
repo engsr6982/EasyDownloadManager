@@ -65,6 +65,8 @@ set(PROJECT_SOURCES
         src/qml/QmlSettings.h
         src/qml/QmlController.cc
         src/qml/QmlController.h
+        src/qml/CommandRegistry.cc
+        src/qml/CommandRegistry.h
         src/qml/QmlScriptManager.cc
         src/qml/QmlScriptManager.h
         src/qml/ScriptLogModel.cc
@@ -126,6 +128,7 @@ qt_add_qml_module(EasyDownloadManager
         src-ui/Src/dialog/NewTaskDialog.qml
         src-ui/Src/dialog/DeleteTaskDialog.qml
         src-ui/Src/dialog/ConsoleWindow.qml
+        src-ui/Src/dialog/CommandPalette.qml
         src-ui/Src/drawer/TaskDetailDrawer.qml
         src-ui/Src/fluent/FluButton.qml
         src-ui/Src/fluent/FluCheckBox.qml

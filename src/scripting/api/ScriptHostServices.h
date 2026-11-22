@@ -60,6 +60,15 @@ public:
     virtual std::int64_t startTimer(std::function<void()> const& fn, int ms, bool singleShot) = 0;
     virtual void         stopTimer(std::int64_t handle)                                       = 0;
 
+    // ---- 命令面板：注册的命令显示在主窗口命令面板，回调在主线程执行 ----
+    virtual std::int64_t registerCommand(
+        std::string const&           source,
+        std::string const&           title,
+        std::string const&           description,
+        std::function<void()> const& fn
+    )                                                   = 0;
+    virtual void unregisterCommand(std::int64_t handle) = 0;
+
     // ---- 低频泵：宿主周期性在主线程驱动回调（推进引擎微任务/任务队列）----
     virtual void setPumpHandler(std::function<void()> const& fn, int intervalMs) = 0;
 

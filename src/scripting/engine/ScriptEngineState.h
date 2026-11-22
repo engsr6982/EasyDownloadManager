@@ -46,6 +46,7 @@ struct EngineOwnData {
 
     // ---- 注册表 ----
     std::set<std::int64_t>                                      timerIds;
+    std::set<std::int64_t>                                      commandIds;
     std::map<std::int64_t, std::shared_ptr<IPendingScriptCall>> pendingCalls;
     std::int64_t                                                nextCallId{1};
 
@@ -59,6 +60,16 @@ struct EngineOwnData {
     std::int64_t addTimer(std::function<void()> const& fn, int ms, bool singleShot);
     bool         removeTimer(std::int64_t id);
     void         stopAllTimers();
+
+    // ---- 命令面板（经宿主 services 注册；析构时统一注销）----
+    std::int64_t addCommand(
+        std::string const&           source,
+        std::string const&           title,
+        std::string const&           description,
+        std::function<void()> const& fn
+    );
+    bool removeCommand(std::int64_t id);
+    void unregisterAllCommands();
 
     // ---- 挂起的异步调用 ----
     std::int64_t                        registerPendingCall(std::shared_ptr<IPendingScriptCall> call);
