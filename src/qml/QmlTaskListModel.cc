@@ -295,6 +295,17 @@ void QmlTaskListModel::refreshRow(int row) {
     }
 }
 
+void QmlTaskListModel::refreshDetailById(int taskId) {
+    int row = findRow(taskId);
+    if (row < 0) return;
+    if (auto s = service_->taskState(taskId)) {
+        rows_[row].liveState = s;
+    }
+    if (auto it = details_.find(taskId); it != details_.end() && it->second) {
+        updateDetailFromRow(it->second.data(), row);
+    }
+}
+
 void QmlTaskListModel::updateDetailFromRow(QmlTaskDetail* detail, int row) {
     if (!detail || row < 0 || row >= static_cast<int>(rows_.size())) return;
     auto const& m = rows_[row].model;
@@ -313,7 +324,10 @@ void QmlTaskListModel::updateDetailFromRow(QmlTaskDetail* detail, int row) {
         m->resumable == Resumable::Yes
     );
     detail->setThreadCount(m->threadCount);
-    detail->setLiveState(rows_[row].liveState.get(), m->state);
+    // 行状态轻量推送：右键菜单/抽屉按钮的门控依赖 statusStr，
+    // 该字段不等待抽屉可见期的 pullLive
+    auto const liveState = rows_[row].liveState ? rows_[row].liveState->state() : m->state;
+    detail->setFallbackStatus(liveState);
 }
 
 // ---------- Refresh tick ----------
@@ -408,13 +422,13 @@ QmlTaskDetail* QmlTaskListModel::getTaskDetail(int taskId) {
     int row = findRow(taskId);
     if (row < 0) return nullptr;
 
-    auto        it     = details_.find(taskId);
+    auto           it     = details_.find(taskId);
     QmlTaskDetail* detail = nullptr;
     if (it != details_.end() && it->second) {
         detail = it->second.data();
     } else {
-        detail               = new QmlTaskDetail(this);
-        details_[taskId]     = QPointer<QmlTaskDetail>(detail);
+        detail           = new QmlTaskDetail(this);
+        details_[taskId] = QPointer<QmlTaskDetail>(detail);
     }
     // 打开时总是用当前行刷新，避免展示旧数据（新建任务后立刻打开的场景）
     updateDetailFromRow(detail, row);
@@ -457,7 +471,7 @@ void QmlTaskListModel::normalizeCrashedTaskModel(std::shared_ptr<TaskModel> cons
     if (service_ && service_->taskState(model->id)) return;
 
     model->state = TaskState::Paused;
-    auto* db = service_ ? service_->database() : nullptr;
+    auto* db     = service_ ? service_->database() : nullptr;
     if (db) {
         // 与 DB 保持一致，避免下次启动再次判定为 Running
         try {
@@ -496,8 +510,6 @@ void QmlTaskListModel::onServiceTaskError(int taskId, QString const& message) {
     }
 }
 
-void QmlTaskListModel::onServiceTaskFileNameChanged(int taskId) {
-    reloadRowFromService(taskId);
-}
+void QmlTaskListModel::onServiceTaskFileNameChanged(int taskId) { reloadRowFromService(taskId); }
 
 } // namespace edm

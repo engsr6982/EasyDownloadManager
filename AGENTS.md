@@ -50,12 +50,14 @@ MSVC 运行时强制 DLL 变体（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`）�
 
 ### 下载引擎（src-downloader）
 
-分层、回调驱动、每分片一线程：
+分层、回调驱动、持久 worker 池：worker 线程随任务常驻（世代号驱动重入，
+pause 驻留而非退出），curl 句柄线程内持久复用（连接缓存跨分片保活）。
 
 - `Dispatcher`：顶层编排器，互斥锁下持有 activeTasks_，经 `ITaskObserver*`（生命周期须长于
   dispatcher）接收状态/错误/文件名变更；入口 createTask/pauseTask/resumeTask/cancelTask/updateSpeeds
-- `DownloadTask`：持有活动任务，N 个 worker 线程，`.meta` sidecar 记录分片进度供续传；
-  不可拷贝不可移动（enable_shared_from_this）
+- `DownloadTask`：持有活动任务，持久 worker 池（任务级复用，workerLaunchCount 观测
+  线程创建批次），`.meta` sidecar 记录分片进度供续传；不可拷贝不可移动
+  （enable_shared_from_this）
 - `DownloadWorker`：每分片一个 curl 传输，经共享原子标志接收暂停/取消
 - `DownloadState`：状态/字节的原子量与 shared_mutex 保护的字符串，GUI 轮询的实时数据源
 - `TaskContext`（DownloadTypes.h）：curl 会话工厂，由 TaskModel 构造，携带代理/UA/头/线程/带宽/重试
@@ -70,8 +72,10 @@ Basic（`QQuickStyle::setStyle`），自定义 Fluent 组件在 src-ui/Src/fluen
 QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）：
 
 - `QmlTaskListModel`：核心桥接，AppService 之上的 QAbstractListModel；动作委托给 service，
-  行由 service 信号驱动；1 秒定时器调用 updateSpeeds 并发 dataChanged；`getTaskDetail(id)`
-  惰性创建 `QmlTaskDetail`（实时速率、ETA、错误串、rangesModel 线程状态）
+  行由 service 信号驱动；1 秒定时器调用 updateSpeeds 并发 dataChanged（任务列表行）；
+  `getTaskDetail(id)` 惰性创建 `QmlTaskDetail`（实时速率、ETA、错误串、rangesModel 线程状态）。
+  任务详情实时数据为拉取式：抽屉可见期的定时器调用 `detail.pullLive()`（内部
+  refreshDetailById 从引擎读取），不可见不拉取，不做全局定时推送
 - `QmlSettings`：包装 EdmConfig 单例，QML 双向绑定设置项
 - `QmlController`：应用级动作（最小化到托盘、打开文件/文件夹、剪贴板、无边框窗口外观
   `installWindowFrameless`）
@@ -212,6 +216,10 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
     数据库互斥锁二次加锁），同线程触发 EDEADLK 被 catch 吞掉，tasks.getAll 恒为空且无异常
     浮出。持锁遍历内复用无锁的 makeSnapshot(model)；此类嵌套加锁在 catch-all 环境下静默
     失效，E2E 必须覆盖 tasks.getAll 的数据可见性。
+22. worker 线程默认栈仅 1MB：FileVerifier 曾在栈上放 1MB MD5 缓冲，finalizeTask 在 worker
+    线程执行时栈溢出崩溃（bash 报 exit 127）。大缓冲一律堆分配。
+23. clang-format 会按字母序重排 include，windows.h 被排到 bcrypt.h 之后导致 LONG/ULONG
+    未定义；须用 clang-format off/on 钳住顺序敏感的 include 组。
 19. QML 侧无边框窗口（`installWindowFrameless`）：窗口隐藏时 Qt 可能销毁平台窗口（HWND 变化），
     chrome 须在每次 `visibleChanged(true)` 时重新施加，否则重开窗口阴影丢失；动态改 flags
     （如 StaysOnTop）后需 hide 加 show 才生效。

@@ -48,6 +48,7 @@ add_subdirectory(src-common)
 add_subdirectory(src-downloader)
 add_subdirectory(test/cli)
 add_subdirectory(test/scripting)
+add_subdirectory(test/engine)
 
 # --- 主应用源文件列表 ---
 set(PROJECT_SOURCES

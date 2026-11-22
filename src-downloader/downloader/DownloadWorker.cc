@@ -1,6 +1,7 @@
 #include "DownloadWorker.h"
 #include "CurlFromContext.h"
 #include "DownloadTypes.h"
+#include "Global.h"
 #include "utils/TaskLogger.h"
 
 #include <cstdio>
@@ -10,7 +11,7 @@
 #include <share.h>
 #endif
 
-namespace edm ::downloader {
+namespace edm::downloader {
 
 
 DownloadWorker::DownloadWorker(
@@ -22,7 +23,11 @@ DownloadWorker::DownloadWorker(
 : config_(std::move(config)),
   outFilePath_(std::move(outFilePath)),
   isTaskRunning_(std::move(isTaskRunning)),
-  slot_(slot) {}
+  slot_(slot) {
+    // 线程内持久句柄：reset 只清选项、保留连接缓存，同主机分片复用 TCP/TLS 连接
+    auto curlExRes = makeCurlFromContext(config_);
+    if (curlExRes) curl_ = std::move(curlExRes.value());
+}
 
 DownloadWorker::~DownloadWorker() = default;
 
@@ -80,7 +85,7 @@ size_t DownloadWorker::headerCallback(char* ptr, size_t size, size_t nmemb, void
     return size * nmemb;
 }
 
-Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& range) const {
+Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& range) {
     EDM_LOG_DEBUG(
         config_->id,
         "downloadRange: opening file, offset={}, range=[{}, {})",
@@ -117,15 +122,21 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     fseeko(fp, currentOffset, SEEK_SET); // Linux/macOS 支持 >2GB 文件的 fseek
 #endif
 
-    // 配置 CURL
-    assert(config_);
-    auto curlExRes = makeCurlFromContext(config_);
-    if (!curlExRes) {
+    // 句柄复用：reset 清选项保留连接缓存，重放会话级选项
+    if (!curl_) {
         std::fclose(fp);
-        EDM_LOG_ERROR(config_->id, "downloadRange: failed to create CURL handle: {}", curlExRes.error().message());
-        return forwardError(curlExRes.error());
+        EDM_LOG_ERROR(config_->id, "downloadRange: CURL handle unavailable");
+        return makeStringError("CURL handle unavailable");
     }
-    curl::CurlEx curl = std::move(curlExRes.value());
+    curl_.reset();
+    applyContextOptions(curl_, config_);
+    if (!curl_.status()) {
+        std::fclose(fp);
+        EDM_LOG_ERROR(config_->id, "downloadRange: failed to apply CURL options: {}", curl_.status().error().message());
+        Error err = curl_.status().error();
+        return forwardError(err);
+    }
+    auto& curl = curl_;
 
     // 告诉服务器我们要下载的精确范围
     std::string rangeStr = fmt::format("{}-{}", currentOffset, range->end);
@@ -177,7 +188,7 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     return {};
 }
 
-Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> const& range) const {
+Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> const& range) {
     EDM_LOG_DEBUG(config_->id, "downloadWholeFile: starting whole file download");
 
     std::FILE* fp = nullptr;
@@ -195,13 +206,24 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
         return makeStringError("Failed to open temp file for writing: " + outFilePath_);
     }
 
-    auto curlExRes = makeCurlFromContext(config_);
-    if (!curlExRes) {
+    if (!curl_) {
         std::fclose(fp);
-        EDM_LOG_ERROR(config_->id, "downloadWholeFile: failed to create CURL handle: {}", curlExRes.error().message());
-        return forwardError(curlExRes.error());
+        EDM_LOG_ERROR(config_->id, "downloadWholeFile: CURL handle unavailable");
+        return makeStringError("CURL handle unavailable");
     }
-    curl::CurlEx curl = std::move(curlExRes.value());
+    curl_.reset();
+    applyContextOptions(curl_, config_);
+    if (!curl_.status()) {
+        std::fclose(fp);
+        EDM_LOG_ERROR(
+            config_->id,
+            "downloadWholeFile: failed to apply CURL options: {}",
+            curl_.status().error().message()
+        );
+        Error err = curl_.status().error();
+        return forwardError(err);
+    }
+    auto& curl = curl_;
 
     // downloadWholeFile 不需要范围校验（从偏移 0 写全文件是正确的）
     curl.setAbortFlag(isTaskRunning_.get());

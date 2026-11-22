@@ -101,9 +101,18 @@ const { rangeMd5s, chunkSize: preChunkSize, rangeCount } = precomputeRangeMd5s(s
 console.log(`Pre-computed ${rangeCount} range MD5s (chunkSize=${preChunkSize})`);
 console.log("");
 
+let totalConnections = 0;
+let activeConnections = 0;
+
 // -- /health ----------------------------------------------------------
 app.get("/health", (req, res) => {
-  res.json({ ok: true, size, fileName });
+  res.json({ ok: true, size, fileName, totalConnections, activeConnections });
+});
+
+// -- /stats -----------------------------------------------------------
+// 连接复用验证用：客户端断言分片下载复用连接（连接数应接近 worker 数而非分片数）。
+app.get("/stats", (req, res) => {
+  res.json({ totalConnections, activeConnections });
 });
 
 // -- /checksum --------------------------------------------------------
@@ -129,6 +138,7 @@ function handleFileRequest(req, res, requireRange) {
   console.log("Request Headers:", JSON.stringify(req.headers, null, 2));
 
   res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-MD5", fullFileMd5.hash);
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
   res.setHeader("ETag", etag);
@@ -268,11 +278,19 @@ function sendVirtualFile(req, res, start, end) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-app.listen(port, "127.0.0.1", () => {
+const server = app.listen(port, "127.0.0.1", () => {
   console.log(`Test server listening on http://127.0.0.1:${port}`);
   console.log(`  Full-file MD5: ${fullFileMd5.hash}`);
   console.log(`  /file          – generic (Range optional)`);
   console.log(`  /file-range    – multi-thread (Range required)`);
   console.log(`  /checksum      – pre-computed MD5 reference`);
   console.log(`  /health        – health check`);
+});
+
+server.on("connection", (socket) => {
+  totalConnections += 1;
+  activeConnections += 1;
+  socket.on("close", () => {
+    activeConnections -= 1;
+  });
 });

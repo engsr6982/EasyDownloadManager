@@ -1,5 +1,7 @@
 #include "QmlTaskDetail.h"
 
+#include "QmlTaskListModel.h"
+
 #include "Global.h"
 #include "database/TaskModel.h"
 #include "downloader/DownloadTypes.h"
@@ -16,6 +18,25 @@
 namespace edm {
 
 // 与 DownloadState::kMaxWorkers 保持同步（改一处必须改另一处）
+
+/// WorkerState 到线程卡片状态文本的映射（渲染时才生成，模型内部只存数值）
+QString workerStateText(int stateInt) {
+    using downloader::WorkerState;
+    switch (static_cast<WorkerState>(stateInt)) {
+    case WorkerState::Requesting:
+        return QStringLiteral("请求中");
+    case WorkerState::Downloading:
+        return QStringLiteral("接收中");
+    case WorkerState::Retrying:
+        return QStringLiteral("重试中");
+    case WorkerState::Finished:
+        return QStringLiteral("已完成");
+    case WorkerState::Stopped:
+        return QStringLiteral("已停止");
+    default:
+        return QStringLiteral("空闲");
+    }
+}
 static_assert(
     QmlRangeModel::kMaxWorkerSlots == static_cast<int>(downloader::DownloadState::kMaxWorkers),
     "QmlRangeModel::kMaxWorkerSlots must match DownloadState::kMaxWorkers"
@@ -39,7 +60,7 @@ QVariant QmlRangeModel::data(QModelIndex const& index, int role) const {
     case RangeIndexRole:
         return index.row() + 1;
     case RangeStatusRole:
-        return row.status;
+        return workerStateText(row.stateInt);
     case RangeProgressRole:
         return row.progress;
     case RangeDownloadedRole:
@@ -66,17 +87,17 @@ QVariant QmlRangeModel::data(QModelIndex const& index, int role) const {
 
 QHash<int, QByteArray> QmlRangeModel::roleNames() const {
     return {
-        {      RangeIndexRole,      "rangeIndex"},
-        {     RangeStatusRole,     "rangeStatus"},
-        {   RangeProgressRole,   "rangeProgress"},
-        {RangeDownloadedRole, "rangeDownloaded"},
-        {      RangeSizeRole,       "rangeSize"},
-        {    RangeStartRole,     "rangeStart"},
-        {      RangeEndRole,       "rangeEnd"},
-        { RangeAttemptsRole,  "rangeAttempts"},
+        {        RangeIndexRole,         "rangeIndex"},
+        {       RangeStatusRole,        "rangeStatus"},
+        {     RangeProgressRole,      "rangeProgress"},
+        {   RangeDownloadedRole,    "rangeDownloaded"},
+        {         RangeSizeRole,          "rangeSize"},
+        {        RangeStartRole,         "rangeStart"},
+        {          RangeEndRole,           "rangeEnd"},
+        {     RangeAttemptsRole,      "rangeAttempts"},
         {RangeDownloadedStrRole, "rangeDownloadedStr"},
-        {RangeSizeStrRole,  "rangeSizeStr"},
-        { RangeSpeedStrRole,  "rangeSpeedStr"},
+        {      RangeSizeStrRole,       "rangeSizeStr"},
+        {     RangeSpeedStrRole,      "rangeSpeedStr"},
     };
 }
 
@@ -92,15 +113,16 @@ void QmlRangeModel::setThreadCount(int threadCount) {
 }
 
 void QmlRangeModel::update(downloader::DownloadState const* state) {
-    // Pending/Paused 阶段后台线程可能正在 start() 里重建 ranges，而本方法读取
-    // state->ranges 时不持有引擎锁，此时不能去解引用分片；线程槽位本身是定长
-    // 原子数组，任何阶段读取都安全。
+    // 线程槽位是定长原子数组，任何阶段读取都安全（worker 线程独占写各自槽位）。
+    // 持久 worker 协议下 pause 为驻留不退出：暂停/失败/完成后的槽位依然有效，
+    // 线程行照常显示真实状态（已停止/已完成）。
+    // 分片解引用只在 ranges 结构稳定时进行：Pending/Preparing 阶段 start() 可能
+    // 正在重建 ranges，此时线程行保留数值、分片列保持旧值。
     bool const rangesReadable =
-        state != nullptr && state->state() != TaskState::Pending && state->state() != TaskState::Paused;
+        state != nullptr && state->state() != TaskState::Pending && state->state() != TaskState::Preparing;
 
-    int const liveWorkers =
-        rangesReadable ? state->workerCount.load(std::memory_order_acquire) : 0;
-    int const desired = liveWorkers > 0 ? liveWorkers : std::max(threadCount_, 0);
+    int const liveWorkers = state ? state->workerCount.load(std::memory_order_acquire) : 0;
+    int const desired     = liveWorkers > 0 ? liveWorkers : std::max(threadCount_, 0);
 
     bool const newActive = liveWorkers > 0;
     if (newActive != active_) {
@@ -117,104 +139,87 @@ void QmlRangeModel::update(downloader::DownloadState const* state) {
     double const elapsed = lastSampleMs_ > 0 ? static_cast<double>(nowMs - lastSampleMs_) / 1000.0 : 0.0;
     bool const   sample  = elapsed >= 0.05;
 
-    std::vector<ThreadRow> next(static_cast<size_t>(desired));
-    for (int i = 0; i < liveWorkers; ++i) {
-        auto const& slot = state->workers[static_cast<size_t>(i)];
-        auto&       row  = next[static_cast<size_t>(i)];
-        auto const  ws   = static_cast<downloader::WorkerState>(slot.state.load(std::memory_order_relaxed));
-        auto const  idx  = slot.rangeIndex.load(std::memory_order_relaxed);
-        row.attempts     = slot.attempt.load(std::memory_order_relaxed);
+    // 行数变化时才整体重置（行身份与引擎槽位一一对应，稳定不追加不重建）
+    if (static_cast<int>(rows_.size()) != desired) {
+        beginResetModel();
+        rows_.assign(static_cast<size_t>(desired), ThreadRow{});
+        prevBytes_.fill(0);
+        slotSpeed_.fill(0.0);
+        endResetModel();
+        lastSampleMs_ = nowMs;
+    }
 
-        switch (ws) {
-        case downloader::WorkerState::Requesting:
-            row.status = QStringLiteral("请求中");
-            break;
-        case downloader::WorkerState::Downloading:
-            row.status = QStringLiteral("接收中");
-            break;
-        case downloader::WorkerState::Retrying:
-            row.status = QStringLiteral("重试中");
-            break;
-        case downloader::WorkerState::Finished:
-            row.status = QStringLiteral("已完成");
-            break;
-        case downloader::WorkerState::Stopped:
-            // 暂停/取消/失败导致的退出：不能显示成"已完成"
-            row.status = QStringLiteral("已停止");
-            break;
-        case downloader::WorkerState::Idle:
-        default:
-            row.status = QStringLiteral("空闲");
-            break;
-        }
+    // 原地更新：引擎槽位原子量直接读入行结构（共享读取，无临时容器转换）
+    std::vector<int> changedRows;
+    for (int i = 0; i < desired; ++i) {
+        auto const& slot = state->workers[static_cast<size_t>(i)];
+        auto&       row  = rows_[static_cast<size_t>(i)];
+        auto const  idx  = slot.rangeIndex.load(std::memory_order_relaxed);
+
+        ThreadRow prev = row;
+        row.stateInt   = slot.state.load(std::memory_order_relaxed);
+        row.attempts   = slot.attempt.load(std::memory_order_relaxed);
 
         // 该线程速率：差分槽位累计字节
         auto const total = slot.downloaded.load(std::memory_order_relaxed);
         if (sample) {
-            auto const delta = total - prevBytes_[static_cast<size_t>(i)];
+            auto const delta                   = total - prevBytes_[static_cast<size_t>(i)];
             slotSpeed_[static_cast<size_t>(i)] = delta > 0 ? static_cast<double>(delta) / elapsed : 0.0;
         }
         // 基线无论是否采样都要推进（首次调用只建立基线，不产出速率）
         prevBytes_[static_cast<size_t>(i)] = total;
-        row.speed                         = slotSpeed_[static_cast<size_t>(i)];
+        row.speed                          = slotSpeed_[static_cast<size_t>(i)];
 
         // 该线程当前正在处理的分片（分片与线程不是固定绑定关系）
-        if (idx < state->ranges.size()) {
-            auto const& range = state->ranges[idx];
-            if (range) {
+        if (rangesReadable && idx < state->ranges.size()) {
+            if (auto const& range = state->ranges[idx]) {
                 row.rangeStart = range->start;
                 row.rangeEnd   = range->end;
                 row.downloaded = range->downloaded.load(std::memory_order_relaxed);
                 row.sizeTotal  = range->size();
-                row.progress   = row.sizeTotal > 0
-                                   ? std::clamp(
-                                         static_cast<double>(row.downloaded) / static_cast<double>(row.sizeTotal),
-                                         0.0,
-                                         1.0
-                                     )
-                                   : 0.0;
+                row.progress =
+                    row.sizeTotal > 0
+                        ? std::clamp(static_cast<double>(row.downloaded) / static_cast<double>(row.sizeTotal), 0.0, 1.0)
+                        : 0.0;
             }
         }
-    }
-    // 无条件推进采样时钟：否则第一次 elapsed 恒为 0，速率永远算不出来
-    lastSampleMs_ = nowMs;
 
-    if (static_cast<int>(rows_.size()) != desired) {
-        beginResetModel();
-        rows_ = std::move(next);
-        endResetModel();
-        return;
-    }
-
-    // 逐行比，只对变化行发 dataChanged，保持 ListView 行复用与滚动位置
-    int first = -1, last = -1;
-    for (int i = 0; i < desired; ++i) {
-        auto& oldRow = rows_[i];
-        auto& newRow = next[i];
-        if (oldRow.status != newRow.status || oldRow.downloaded != newRow.downloaded
-            || oldRow.sizeTotal != newRow.sizeTotal || oldRow.rangeStart != newRow.rangeStart
-            || oldRow.rangeEnd != newRow.rangeEnd || oldRow.attempts != newRow.attempts
-            || oldRow.speed != newRow.speed) {
-            oldRow = std::move(newRow);
-            if (first < 0) first = i;
-            last = i;
+        if (prev.stateInt != row.stateInt || prev.progress != row.progress || prev.downloaded != row.downloaded
+            || prev.sizeTotal != row.sizeTotal || prev.rangeStart != row.rangeStart || prev.rangeEnd != row.rangeEnd
+            || prev.attempts != row.attempts || prev.speed != row.speed) {
+            changedRows.push_back(i);
         }
     }
-    if (first >= 0) {
-        emit dataChanged(
-            index(first),
-            index(last),
-            {RangeStatusRole,
-             RangeProgressRole,
-             RangeDownloadedRole,
-             RangeSizeRole,
-             RangeStartRole,
-             RangeEndRole,
-             RangeAttemptsRole,
-             RangeDownloadedStrRole,
-             RangeSizeStrRole,
-             RangeSpeedStrRole}
-        );
+    lastSampleMs_ = nowMs;
+
+    // 变化行合并连续段发 dataChanged，保持 ListView 行复用与滚动位置
+    if (!changedRows.empty()) {
+        auto emitRange = [&](int first, int last) {
+            emit dataChanged(
+                index(first),
+                index(last),
+                {RangeStatusRole,
+                 RangeProgressRole,
+                 RangeDownloadedRole,
+                 RangeSizeRole,
+                 RangeStartRole,
+                 RangeEndRole,
+                 RangeAttemptsRole,
+                 RangeDownloadedStrRole,
+                 RangeSizeStrRole,
+                 RangeSpeedStrRole}
+            );
+        };
+        int first = changedRows.front();
+        int prev  = first;
+        for (size_t k = 1; k < changedRows.size(); ++k) {
+            if (changedRows[k] != prev + 1) {
+                emitRange(first, prev);
+                first = changedRows[k];
+            }
+            prev = changedRows[k];
+        }
+        emitRange(first, prev);
     }
 }
 
@@ -253,6 +258,15 @@ void QmlTaskDetail::setFileInfo(
     emit fileInfoChanged();
 }
 
+void QmlTaskDetail::setFallbackStatus(TaskState state) {
+    auto          name      = magic_enum::enum_name(state);
+    QString const newStatus = name.empty() ? QString{} : QString::fromStdString(std::string(name));
+    if (statusStr_ != newStatus) {
+        statusStr_ = newStatus;
+        emit liveStateChanged();
+    }
+}
+
 void QmlTaskDetail::setLiveState(downloader::DownloadState const* state, TaskState fallbackState) {
     if (!state) {
         // 无实时状态（重启后未派发/已终态）：用数据库里持久化的状态兜底，
@@ -268,12 +282,7 @@ void QmlTaskDetail::setLiveState(downloader::DownloadState const* state, TaskSta
             remainingTimeStr_ = kDash;
             changed           = true;
         }
-        auto name = magic_enum::enum_name(fallbackState);
-        auto newStatus = name.empty() ? QString{} : QString::fromStdString(std::string(name));
-        if (statusStr_ != newStatus) {
-            statusStr_ = newStatus;
-            changed    = true;
-        }
+        setFallbackStatus(fallbackState);
         rangesModel_->update(state); // 无实时状态时线程列表置为非活跃（N/A 占位）
         if (changed) emit liveStateChanged();
         return;
@@ -321,6 +330,13 @@ void QmlTaskDetail::setLiveState(downloader::DownloadState const* state, TaskSta
 }
 
 void QmlTaskDetail::setThreadCount(int threadCount) { rangesModel_->setThreadCount(threadCount); }
+
+/// UI 拉取入口：抽屉可见时的定时器与本打开瞬间调用，仅刷新本任务
+void QmlTaskDetail::pullLive() {
+    if (auto* listModel = qobject_cast<QmlTaskListModel*>(parent())) {
+        listModel->refreshDetailById(taskId_);
+    }
+}
 
 void QmlTaskDetail::setErrorMsg(QString const& msg) {
     if (errorMsg_ != msg) {

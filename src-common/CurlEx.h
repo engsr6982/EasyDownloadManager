@@ -49,6 +49,12 @@ public:
     inline Expected<> const& status() const { return status_; }
 
     /**
+     * 重置全部选项（curl_easy_reset）。连接缓存保留：同一句柄跨传输复用时
+     * 同主机的 TCP/TLS 连接不会被拆除。请求头链表与错误状态一并清空。
+     */
+    CurlEx& reset();
+
+    /**
      * 设置选项
      * @see curl_easy_setopt
      */

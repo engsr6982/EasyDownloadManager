@@ -47,6 +47,9 @@ public:
      */
     std::shared_ptr<TaskContext> getActiveTaskContext(TaskId id);
 
+    /// 获取活动任务实例（测试/观测用：读取 workerLaunchCount 等内部指标）
+    std::shared_ptr<downloader::DownloadTask> getActiveTask(TaskId id);
+
     void updateAllSpeeds();
 
     void updateSpeed(TaskId id);

@@ -21,9 +21,9 @@ struct DownloadRange;
 /**
  * @brief 任务详情里的线程状态列表。
  *
- * 一行 = 一个引擎中实际存在的下载线程。引擎是工作窃取式分片池，线程与分片并非
- * 固定绑定，所以每行展示的是"该线程此刻正在处理哪个分片"，数据直接来自
- * DownloadState::workers 槽位（由对应 worker 独占写入），不再做任何分桶近似。
+ * 一行对应一个引擎中实际存在的下载线程。引擎为工作窃取式分片池，线程与分片
+ * 并非固定绑定，每行展示"该线程此刻正在处理哪个分片"，数据直接来自
+ * DownloadState::workers 槽位（由对应 worker 独占写入）。
  * 行数 = 实际线程数；任务未启动时回落到配置线程数占位并显示 N/A。
  */
 class QmlRangeModel : public QAbstractListModel {
@@ -70,8 +70,9 @@ signals:
     void activeChanged();
 
 private:
+    /// 行数据为纯数值：引擎槽位原子量读入本结构，data() 渲染时才生成文本
     struct ThreadRow {
-        QString status;
+        int     stateInt{0}; // downloader::WorkerState
         double  progress{0.0};
         int64_t downloaded{0};
         int64_t sizeTotal{0};
@@ -124,7 +125,7 @@ public:
     explicit QmlTaskDetail(QObject* parent = nullptr);
     ~QmlTaskDetail() override = default;
 
-    int taskId() const { return taskId_; }
+    int  taskId() const { return taskId_; }
     void setTaskId(int id);
 
     QString fileName() const { return fileName_; }
@@ -137,7 +138,7 @@ public:
     QString categoryStr() const { return categoryStr_; }
     QString mimeType() const { return mimeType_; }
     QString errorMsg() const { return errorMsg_; }
-    bool resumable() const { return resumable_; }
+    bool    resumable() const { return resumable_; }
 
     QString statusStr() const { return statusStr_; }
     QString speedStr() const { return speedStr_; }
@@ -147,18 +148,24 @@ public:
 
     /// Populate the static (file-info) fields from a TaskModel. Called when the
     /// detail is first created and whenever a task is reloaded.
-    void setFileInfo(int taskId,
-                     QString const& fileName,
-                     QString const& fileSizeStr,
-                     QString const& urlStr,
-                     QString const& saveDir,
-                     QString const& referrer,
-                     QString const& firstTryStr,
-                     QString const& lastTryStr,
-                     QString const& categoryStr,
-                     QString const& mimeType,
-                     QString const& errorMsg,
-                     bool resumable);
+    void setFileInfo(
+        int            taskId,
+        QString const& fileName,
+        QString const& fileSizeStr,
+        QString const& urlStr,
+        QString const& saveDir,
+        QString const& referrer,
+        QString const& firstTryStr,
+        QString const& lastTryStr,
+        QString const& categoryStr,
+        QString const& mimeType,
+        QString const& errorMsg,
+        bool           resumable
+    );
+
+    /// 数据库/引擎行状态的轻量回退：仅同步 statusStr（右键菜单门控依赖），
+    /// 不触碰 rangesModel（线程数据走 pullLive 拉取）。
+    void setFallbackStatus(TaskState state);
 
     /// Pull the live (state-dependent) fields from a DownloadState.
     /// `state` may be null (if the task is no longer running); in that case
@@ -169,6 +176,9 @@ public:
 
     /// 设置 rangesModel 的占位行数（= 下载线程数）。
     void setThreadCount(int threadCount);
+
+    /// UI 拉取入口：按当前任务从引擎拉取实时状态（抽屉可见期定时调用）
+    Q_INVOKABLE void pullLive();
 
     void setErrorMsg(QString const& msg);
 
@@ -189,7 +199,7 @@ private:
     QString categoryStr_;
     QString mimeType_;
     QString errorMsg_;
-    bool resumable_{false};
+    bool    resumable_{false};
 
     QString statusStr_;
     QString speedStr_;

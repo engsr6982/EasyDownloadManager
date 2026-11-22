@@ -10,8 +10,10 @@
 #include <vector>
 
 #ifdef _WIN32
+// clang-format off：windows.h 必须先于 bcrypt.h（提供 LONG/ULONG 基础类型）
 #include <windows.h>
 #include <bcrypt.h>
+// clang-format on
 #endif
 
 namespace edm::downloader {
@@ -19,9 +21,7 @@ namespace edm::downloader {
 namespace {
 
 std::string toLower(std::string value) {
-    std::ranges::transform(value, value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value;
 }
 
@@ -75,9 +75,23 @@ Expected<std::string> FileVerifier::md5Hex(std::string const& path) {
     auto status = BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_MD5_ALGORITHM, nullptr, 0);
     if (status < 0) return makeStringError("Failed to open MD5 provider");
 
-    status = BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectLen), sizeof(objectLen), &cbData, 0);
+    status = BCryptGetProperty(
+        algorithm,
+        BCRYPT_OBJECT_LENGTH,
+        reinterpret_cast<PUCHAR>(&objectLen),
+        sizeof(objectLen),
+        &cbData,
+        0
+    );
     if (status >= 0) {
-        status = BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashLen), sizeof(hashLen), &cbData, 0);
+        status = BCryptGetProperty(
+            algorithm,
+            BCRYPT_HASH_LENGTH,
+            reinterpret_cast<PUCHAR>(&hashLen),
+            sizeof(hashLen),
+            &cbData,
+            0
+        );
     }
     if (status < 0) {
         BCryptCloseAlgorithmProvider(algorithm, 0);
@@ -93,12 +107,13 @@ Expected<std::string> FileVerifier::md5Hex(std::string const& path) {
         return makeStringError("Failed to create MD5 hash");
     }
 
-    std::array<char, 1024 * 1024> buffer{};
+    // 堆分配：finalizeTask 在 worker 线程执行（默认栈仅 1MB），栈上 1MB 缓冲会溢出
+    std::vector<char> buffer(1024 * 1024);
     while (file.good()) {
         file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
         auto readBytes = file.gcount();
-        if (readBytes > 0 &&
-            BCryptHashData(hash, reinterpret_cast<PUCHAR>(buffer.data()), static_cast<ULONG>(readBytes), 0) < 0) {
+        if (readBytes > 0
+            && BCryptHashData(hash, reinterpret_cast<PUCHAR>(buffer.data()), static_cast<ULONG>(readBytes), 0) < 0) {
             BCryptDestroyHash(hash);
             BCryptCloseAlgorithmProvider(algorithm, 0);
             return makeStringError("Failed to update MD5 digest");
@@ -139,10 +154,14 @@ FileVerifier::verify(std::string const& path, int64_t expectedSize, std::optiona
     }
 
     auto expected = *expectedMd5;
-    expected.erase(std::remove_if(expected.begin(), expected.end(), [](unsigned char c) {
-                       return std::isspace(c) != 0 || c == '"' || c == '\'';
-                   }),
-                   expected.end());
+    expected.erase(
+        std::remove_if(
+            expected.begin(),
+            expected.end(),
+            [](unsigned char c) { return std::isspace(c) != 0 || c == '"' || c == '\''; }
+        ),
+        expected.end()
+    );
 
     auto actualHex = toLower(md5Res.value());
     if (expected.size() == 32) {
@@ -154,8 +173,10 @@ FileVerifier::verify(std::string const& path, int64_t expectedSize, std::optiona
     for (size_t i = 0; i + 1 < actualHex.size(); i += 2) {
         bytes.push_back(static_cast<unsigned char>(std::stoul(actualHex.substr(i, 2), nullptr, 16)));
     }
-    return FileVerification{expected == base64Encode(bytes.data(), static_cast<unsigned int>(bytes.size())),
-                            "MD5 checksum mismatch"};
+    return FileVerification{
+        expected == base64Encode(bytes.data(), static_cast<unsigned int>(bytes.size())),
+        "MD5 checksum mismatch"
+    };
 }
 
 } // namespace edm::downloader

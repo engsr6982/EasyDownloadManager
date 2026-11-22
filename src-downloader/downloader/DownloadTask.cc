@@ -107,7 +107,11 @@ DownloadTask::~DownloadTask() {
     assert(state_);
     EDM_LOG_DEBUG(configure_->id, "DownloadTask destroying");
 
-    isRunningFlag_->store(false, std::memory_order_release);
+    {
+        std::lock_guard lock{wakeMutex_};
+        exitWorkers_.store(true, std::memory_order_release);
+    }
+    wakeCv_.notify_all();
     joinWorkers();
 
     if (state_->state() == TaskState::Running) {
@@ -367,100 +371,166 @@ void DownloadTask::saveProgress() const {
     }
 }
 
-void DownloadTask::launchWorkers() {
+void DownloadTask::rearmWorkers() {
     auto taskId = configure_->id;
-    joinWorkers();
     nextRangeIndex_.store(0, std::memory_order_relaxed);
-    activeWorkers_.store(0, std::memory_order_relaxed);
-    isRunningFlag_->store(true, std::memory_order_release);
+    finalizeDone_.store(false, std::memory_order_release);
+    exitWorkers_.store(false, std::memory_order_release);
     cancelRequested_.store(false, std::memory_order_release);
+    isRunningFlag_->store(true, std::memory_order_release);
 
     int workerCount = configure_->metaInfo->supportRange ? static_cast<int>(configure_->threads) : 1;
     workerCount     = std::max(workerCount, 1);
     workerCount     = std::min<int>(workerCount, static_cast<int>(std::max<size_t>(state_->ranges.size(), 1)));
     workerCount     = std::min<int>(workerCount, static_cast<int>(DownloadState::kMaxWorkers));
-    activeWorkers_.store(workerCount, std::memory_order_relaxed);
+    workerTarget_.store(workerCount, std::memory_order_relaxed);
 
-    // 重置线程槽位，供 UI 读取真实线程状态（每轮启动重新发布一次）
+    // 重置线程槽位（世代重启：状态/分片/累计字节全部归零，此后 UI 的速率
+    // 差分基线从零开始）。此时 worker 已全部驻留或退出，写槽位无竞争。
     for (auto& slot : state_->workers) {
         slot.state.store(static_cast<int>(WorkerState::Idle), std::memory_order_relaxed);
         slot.rangeIndex.store(SIZE_MAX, std::memory_order_relaxed);
         slot.attempt.store(0, std::memory_order_relaxed);
+        slot.downloaded.store(0, std::memory_order_relaxed);
     }
     state_->workerCount.store(workerCount, std::memory_order_release);
 
-    EDM_LOG_INFO(taskId, "Launching {} worker(s) for {} range(s)", workerCount, state_->ranges.size());
-
-    workers_.reserve(static_cast<size_t>(workerCount));
-    auto self = shared_from_this();
-    for (int i = 0; i < workerCount; ++i) {
-        workers_.emplace_back([self, slot = static_cast<size_t>(i)]() {
-            self->workerLoop(slot);
-            if (self->activeWorkers_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                self->finalizeTask();
-            }
-        });
+    // 线程随任务常驻：仅在首次启动时创建，此后驻留待命（pause 不退出），
+    // start/resume 递增世代号唤醒驻留线程重新领取分片。
+    if (!workersSpawned_.load(std::memory_order_acquire)) {
+        workers_.reserve(static_cast<size_t>(workerCount));
+        auto self = shared_from_this();
+        for (int i = 0; i < workerCount; ++i) {
+            workers_.emplace_back([self, slot = static_cast<size_t>(i)]() { self->workerLoop(slot); });
+        }
+        workersSpawned_.store(true, std::memory_order_release);
+        workerLaunchCount_.fetch_add(1, std::memory_order_relaxed);
+        EDM_LOG_INFO(taskId, "Spawned {} persistent worker(s) for {} range(s)", workerCount, state_->ranges.size());
+    } else {
+        EDM_LOG_INFO(taskId, "Rearming {} persistent worker(s) for {} range(s)", workerCount, state_->ranges.size());
     }
+
+    {
+        // 世代号自增须持 wakeMutex_：驻留 worker 的谓词检查与休眠在锁内原子完成，
+        // 不持锁自增会与它们产生丢失唤醒窗口
+        std::lock_guard lock{wakeMutex_};
+        workGeneration_.fetch_add(1, std::memory_order_release);
+    }
+    wakeCv_.notify_all();
 }
 
 void DownloadTask::workerLoop(size_t slot) {
     auto taskId = configure_->id;
-    EDM_LOG_DEBUG(taskId, "Worker {} started", slot);
+    EDM_LOG_DEBUG(taskId, "Worker {} spawned", slot);
     auto&          slotRef = state_->workers[slot];
     DownloadWorker worker(configure_, outFilePath_, isRunningFlag_, &slotRef);
+    uint64_t       myGen = workGeneration_.load(std::memory_order_acquire);
 
-    while (isRunningFlag_->load(std::memory_order_acquire)) {
-        auto idx = nextRangeIndex_.fetch_add(1, std::memory_order_relaxed);
-        if (idx >= state_->ranges.size()) break;
+    for (;;) {
+        // 处理当前世代的全部分片（工作窃取式：原子游标领片）
+        while (isRunningFlag_->load(std::memory_order_acquire)
+               && myGen == workGeneration_.load(std::memory_order_acquire)) {
+            auto idx = nextRangeIndex_.fetch_add(1, std::memory_order_relaxed);
+            if (idx >= state_->ranges.size()) break;
 
-        auto range = state_->ranges[idx];
-        if (range->completed.load(std::memory_order_relaxed)) continue;
+            auto range = state_->ranges[idx];
+            if (range->completed.load(std::memory_order_relaxed)) continue;
 
-        EDM_LOG_DEBUG(taskId, "Worker {} picking up range {} [{}, {})", slot, idx, range->start, range->end + 1);
-        // 领到分片进入请求中；收到首个数据块后由写回调切到"接收中"
-        slotRef.state.store(static_cast<int>(WorkerState::Requesting), std::memory_order_relaxed);
-        slotRef.rangeIndex.store(idx, std::memory_order_relaxed);
-        slotRef.attempt.store(0, std::memory_order_relaxed);
+            EDM_LOG_DEBUG(taskId, "Worker {} picking up range {} [{}, {})", slot, idx, range->start, range->end + 1);
+            // 领到分片进入请求中；收到首个数据块后由写回调切到"接收中"
+            slotRef.state.store(static_cast<int>(WorkerState::Requesting), std::memory_order_relaxed);
+            slotRef.rangeIndex.store(idx, std::memory_order_relaxed);
+            slotRef.attempt.store(0, std::memory_order_relaxed);
 
-        for (int attempt = 0; attempt <= kRetryCount && isRunningFlag_->load(std::memory_order_acquire); ++attempt) {
-            range->attempts.store(attempt, std::memory_order_relaxed);
-            slotRef.attempt.store(attempt, std::memory_order_relaxed);
+            for (int attempt = 0; attempt <= kRetryCount && isRunningFlag_->load(std::memory_order_acquire);
+                 ++attempt) {
+                range->attempts.store(attempt, std::memory_order_relaxed);
+                slotRef.attempt.store(attempt, std::memory_order_relaxed);
 
-            auto res =
-                configure_->metaInfo->supportRange ? worker.downloadRange(range) : worker.downloadWholeFile(range);
-            if (res) {
-                EDM_LOG_DEBUG(taskId, "Range {} completed successfully", idx);
-                break;
-            }
+                auto res =
+                    configure_->metaInfo->supportRange ? worker.downloadRange(range) : worker.downloadWholeFile(range);
+                if (res) {
+                    EDM_LOG_DEBUG(taskId, "Range {} completed successfully", idx);
+                    break;
+                }
 
-            if (!isRunningFlag_->load(std::memory_order_acquire)) break;
-            if (attempt == kRetryCount) {
-                EDM_LOG_ERROR(taskId, "Range {} failed after {} attempts: {}", idx, attempt + 1, res.error().message());
-                notifyError(res.error().message());
-                isRunningFlag_->store(false, std::memory_order_release);
-            } else {
-                EDM_LOG_WARN(
-                    taskId,
-                    "Range {} attempt {}/{} failed: {}, retrying...",
-                    idx,
-                    attempt + 1,
-                    kRetryCount + 1,
-                    res.error().message()
-                );
-                slotRef.state.store(static_cast<int>(WorkerState::Retrying), std::memory_order_relaxed);
-                std::this_thread::sleep_for(std::chrono::milliseconds(300 * (attempt + 1)));
-                slotRef.state.store(static_cast<int>(WorkerState::Downloading), std::memory_order_relaxed);
+                if (!isRunningFlag_->load(std::memory_order_acquire)) break;
+                if (attempt == kRetryCount) {
+                    EDM_LOG_ERROR(
+                        taskId,
+                        "Range {} failed after {} attempts: {}",
+                        idx,
+                        attempt + 1,
+                        res.error().message()
+                    );
+                    notifyError(res.error().message());
+                    isRunningFlag_->store(false, std::memory_order_release);
+                } else {
+                    EDM_LOG_WARN(
+                        taskId,
+                        "Range {} attempt {}/{} failed: {}, retrying...",
+                        idx,
+                        attempt + 1,
+                        kRetryCount + 1,
+                        res.error().message()
+                    );
+                    slotRef.state.store(static_cast<int>(WorkerState::Retrying), std::memory_order_relaxed);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300 * (attempt + 1)));
+                    slotRef.state.store(static_cast<int>(WorkerState::Downloading), std::memory_order_relaxed);
+                }
             }
         }
+        slotRef.rangeIndex.store(SIZE_MAX, std::memory_order_relaxed);
+
+        // pause/失败/世代完成 - 驻留待命；cancel/析构 - 退出线程
+        if (exitWorkers_.load(std::memory_order_acquire)) {
+            slotRef.state.store(static_cast<int>(WorkerState::Stopped), std::memory_order_relaxed);
+            EDM_LOG_DEBUG(taskId, "Worker {} exiting (requested)", slot);
+            return;
+        }
+
+        // 分片取完 = 已完成；被暂停/失败打断 = 已停止（失败的任务不该显示"已完成"）
+        bool const interrupted = !isRunningFlag_->load(std::memory_order_acquire);
+        slotRef.state.store(
+            static_cast<int>(interrupted ? WorkerState::Stopped : WorkerState::Finished),
+            std::memory_order_relaxed
+        );
+
+        {
+            // 驻留登记须持 wakeMutex_：waitAllParked 的谓词检查与休眠在锁内原子完成
+            std::lock_guard lock{wakeMutex_};
+            parkedCount_.fetch_add(1, std::memory_order_relaxed);
+        }
+        // 最后一个驻留者负责世代收尾（暂停落盘 / 完成校验改名 / 失败标记）
+        if (parkedCount_.load(std::memory_order_acquire) == workerTarget_.load(std::memory_order_relaxed)) {
+            if (!finalizeDone_.exchange(true, std::memory_order_acq_rel)) {
+                finalizeTask();
+            }
+            wakeCv_.notify_all();
+        }
+        EDM_LOG_DEBUG(taskId, "Worker {} parked ({})", slot, interrupted ? "stopped" : "finished");
+
+        std::unique_lock lock{wakeMutex_};
+        wakeCv_.wait(lock, [&] {
+            return exitWorkers_.load(std::memory_order_acquire)
+                || myGen != workGeneration_.load(std::memory_order_acquire);
+        });
+        parkedCount_.fetch_sub(1, std::memory_order_relaxed);
+        if (exitWorkers_.load(std::memory_order_acquire)) {
+            slotRef.state.store(static_cast<int>(WorkerState::Stopped), std::memory_order_relaxed);
+            EDM_LOG_DEBUG(taskId, "Worker {} exiting (requested while parked)", slot);
+            return;
+        }
+        myGen = workGeneration_.load(std::memory_order_acquire);
+        EDM_LOG_DEBUG(taskId, "Worker {} rearmed for generation {}", slot, myGen);
     }
-    // 分片取完 = 已完成；被暂停/取消/失败打断 = 已停止（失败的任务不该显示"已完成"）
-    bool const interrupted = !isRunningFlag_->load(std::memory_order_acquire);
-    slotRef.state.store(
-        static_cast<int>(interrupted ? WorkerState::Stopped : WorkerState::Finished),
-        std::memory_order_relaxed
-    );
-    slotRef.rangeIndex.store(SIZE_MAX, std::memory_order_relaxed);
-    EDM_LOG_DEBUG(taskId, "Worker {} exiting ({})", slot, interrupted ? "stopped" : "finished");
+}
+
+void DownloadTask::waitAllParked() {
+    std::unique_lock lock{wakeMutex_};
+    wakeCv_.wait(lock, [&] {
+        return parkedCount_.load(std::memory_order_acquire) == workerTarget_.load(std::memory_order_relaxed);
+    });
 }
 
 void DownloadTask::joinWorkers() {
@@ -476,13 +546,15 @@ void DownloadTask::joinWorkers() {
         worker.join();
     }
     workers_.clear();
+    workersSpawned_.store(false, std::memory_order_release);
 }
 
 Expected<> DownloadTask::start() {
-    // 先收干净上一轮 worker，再碰 state_->ranges。
-    // pause()/cancel() 是放锁之后才 joinWorkers() 的，若这里不先 join，
-    // prepareTask() 中的 ranges.clear()/rebuild 会与仍在遍历该向量的老 worker 竞争。
-    joinWorkers();
+    // start/resume 只会在全体 worker 驻留（pause）或退出（cancel）后进入，
+    // 此时重建 ranges 不会与任何 worker 竞争。
+    if (workersSpawned_.load(std::memory_order_acquire)) {
+        waitAllParked();
+    }
 
     auto const taskId = configure_->id;
 
@@ -537,8 +609,8 @@ Expected<> DownloadTask::start() {
     }
 
     setState(TaskState::Running);
-    launchWorkers();
-    EDM_LOG_INFO(taskId, "Task started and workers launched");
+    rearmWorkers();
+    EDM_LOG_INFO(taskId, "Task started, workers rearmed");
     return {};
 }
 
@@ -649,7 +721,7 @@ Expected<> DownloadTask::pause() {
         setState(TaskState::Paused);
         isRunningFlag_->store(false, std::memory_order_release);
     }
-    joinWorkers();
+    waitAllParked();
     saveProgress();
     EDM_LOG_INFO(configure_->id, "Task paused, progress saved");
     return {};
@@ -679,7 +751,11 @@ Expected<> DownloadTask::cancel() {
         setState(TaskState::Canceled);
         isRunningFlag_->store(false, std::memory_order_release);
     }
-
+    {
+        std::lock_guard lock{wakeMutex_};
+        exitWorkers_.store(true, std::memory_order_release);
+    }
+    wakeCv_.notify_all();
     joinWorkers();
     removeTempFiles();
     EDM_LOG_INFO(configure_->id, "Task canceled, temp files removed");
@@ -746,6 +822,8 @@ int64_t DownloadTask::getDownloadedBytes() const {
 std::vector<std::shared_ptr<DownloadRange>> DownloadTask::getRanges() const { return state_->ranges; }
 
 double DownloadTask::getSpeed() const { return currentSpeed_.load(std::memory_order_relaxed); }
+
+uint32_t DownloadTask::workerLaunchCount() const { return workerLaunchCount_.load(std::memory_order_relaxed); }
 
 TaskState DownloadTask::getState() const {
     std::shared_lock lock{mutex_};

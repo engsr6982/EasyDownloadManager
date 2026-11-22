@@ -33,6 +33,16 @@ CurlEx& CurlEx::operator=(CurlEx&& o) noexcept {
     return *this;
 }
 
+CurlEx& CurlEx::reset() {
+    if (!curl_) return *this;
+    curl_easy_reset(curl_);
+    if (headers_) curl_slist_free_all(headers_);
+    headers_ = nullptr;
+    rawHeaders_.clear();
+    status_ = Expected<>{};
+    return *this;
+}
+
 CurlEx& CurlEx::append(std::string header) {
     if (!status_) return *this;
     rawHeaders_.push_back(std::move(header));

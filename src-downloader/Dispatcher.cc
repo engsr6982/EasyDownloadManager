@@ -15,7 +15,7 @@ struct Dispatcher::Impl {
     std::mutex                                                            tasksMutex_{};
     ITaskObserver*                                                        observer{nullptr};
 
-    /// 终态任务不再占用调度槽位：可以被重新调度（继续/重新下载）。
+    /// 终态任务不占用调度槽位，可被重新调度（继续/重新下载）。
     static bool isTerminal(TaskState state) {
         return state == TaskState::Finished || state == TaskState::Failed || state == TaskState::Canceled;
     }
@@ -107,6 +107,13 @@ std::shared_ptr<downloader::DownloadState> Dispatcher::getTaskState(TaskId id) {
     return it->second->getStateObject();
 }
 
+
+std::shared_ptr<downloader::DownloadTask> Dispatcher::getActiveTask(TaskId id) {
+    std::lock_guard<std::mutex> lock(impl_->tasksMutex_);
+    auto                        it = impl_->activeTasks_.find(id);
+    if (it == impl_->activeTasks_.end()) return nullptr;
+    return it->second;
+}
 
 std::shared_ptr<TaskContext> Dispatcher::getActiveTaskContext(TaskId id) {
     {

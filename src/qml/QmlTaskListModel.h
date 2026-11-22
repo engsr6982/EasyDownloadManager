@@ -96,6 +96,9 @@ public:
     /// task isn't tracked. The QObject is owned by this model.
     Q_INVOKABLE QmlTaskDetail* getTaskDetail(int taskId);
 
+    /// 按任务 id 拉取一次实时状态到对应 detail（抽屉可见期的 pull 入口）
+    Q_INVOKABLE void refreshDetailById(int taskId);
+
 signals:
     void countChanged();
     void createTaskError(QString const& url, QString const& message);

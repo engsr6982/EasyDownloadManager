@@ -33,6 +33,18 @@ Item {
         opened = false;
     }
 
+    // 拉取式刷新：抽屉可见期每秒从引擎拉一次线程/实时状态（不可见不拉）
+    Timer {
+        interval: 1000
+        running: opened && currentTaskId > 0 && taskDetail !== null
+        repeat: true
+        onTriggered: taskDetail.pullLive()
+    }
+
+    onOpenedChanged: {
+        if (opened && taskDetail) taskDetail.pullLive();
+    }
+
     // 当 currentTaskId 变化时，直接从 C++ 获取最新的 QmlTaskDetail
     onCurrentTaskIdChanged: {
         if (currentTaskId > 0) {
@@ -51,7 +63,7 @@ Item {
         height: root.parent && root.parent.parent ? root.parent.parent.height : 0
 
         enabled: root.opened // 仅在抽屉打开时激活，平时完全处于停用状态，避免不必要的性能消耗
-        // 打开后拦截遮罩区域的点击：只负责关闭抽屉，不再让事件穿透到下方控件
+        // 拦截遮罩区域的点击，仅关闭抽屉
         onClicked: root.close()
     }
 

@@ -276,7 +276,7 @@ struct AppService::Impl : public ITaskObserver {
         auto request = std::make_shared<HookRequest>();
 
         runOnGui([this, hook, ctx, request] {
-            // 应用退出（stopping_）后不再触发脚本
+            // 应用退出（stopping_）后不派发脚本钩子
             if (!stopping_.load(std::memory_order_acquire)) {
                 request->result = fireMutableMetaHookMain(hook, ctx);
             }

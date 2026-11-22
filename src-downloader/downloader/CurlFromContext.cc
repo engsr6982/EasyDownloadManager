@@ -13,9 +13,7 @@ constexpr long kLowSpeedLimit     = 1;  // B/s，速率下限
 constexpr long kLowSpeedTimeSec   = 30; // 低于下限持续该秒数即中断
 } // namespace
 
-Expected<curl::CurlEx> makeCurlFromContext(std::shared_ptr<TaskContext> const& cfg) {
-    auto curl = curl::CurlEx{};
-
+void applyContextOptions(curl::CurlEx& curl, std::shared_ptr<TaskContext> const& cfg) {
     curl.setOpt(CURLOPT_URL, cfg->url.c_str()) // 设置地址
         .setOpt(CURLOPT_FOLLOWLOCATION, 1L)    // 跟随重定向
         .setOpt(CURLOPT_NOSIGNAL, 1L)
@@ -53,7 +51,11 @@ Expected<curl::CurlEx> makeCurlFromContext(std::shared_ptr<TaskContext> const& c
             curl.append(header);
         }
     }
+}
 
+Expected<curl::CurlEx> makeCurlFromContext(std::shared_ptr<TaskContext> const& cfg) {
+    auto curl = curl::CurlEx{};
+    applyContextOptions(curl, cfg);
     if (!curl.status()) return makeStringError(curl.status().error().message());
     return curl;
 }
