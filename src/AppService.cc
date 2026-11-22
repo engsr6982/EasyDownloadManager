@@ -560,26 +560,32 @@ std::optional<script::TaskSnapshot> AppService::taskSnapshot(int taskId) const {
     try {
         auto model = impl->database_->getTaskById(taskId);
         if (!model) return std::nullopt;
-        script::TaskSnapshot snap;
-        snap.id          = model->id;
-        snap.url         = model->url;
-        snap.fileName    = model->fileName;
-        snap.saveDir     = model->saveDir;
-        snap.state       = model->state;
-        snap.fileSize    = model->fileSize;
-        snap.threadCount = model->threadCount;
-        if (auto st = impl->dispatcher_->getTaskState(taskId)) {
-            snap.state       = st->state();
-            snap.speed       = st->speed();
-            snap.downloaded  = static_cast<double>(st->downloadedBytes());
-            auto const total = st->totalBytes();
-            if (total >= 0) snap.fileSize = total;
-        }
-        return snap;
+        return makeSnapshot(*model);
     } catch (std::exception const& e) {
         qWarning() << "AppService: task snapshot for" << taskId << "failed:" << e.what();
         return std::nullopt;
     }
+}
+
+/// 仅从 model 与调度器实时状态构建快照，不访问数据库；
+/// forEachTask 持锁遍历时复用本函数，避免同线程重复加锁（EDEADLK）。
+std::optional<script::TaskSnapshot> AppService::makeSnapshot(edm::TaskModel const& model) const {
+    script::TaskSnapshot snap;
+    snap.id          = model.id;
+    snap.url         = model.url;
+    snap.fileName    = model.fileName;
+    snap.saveDir     = model.saveDir;
+    snap.state       = model.state;
+    snap.fileSize    = model.fileSize;
+    snap.threadCount = model.threadCount;
+    if (auto st = impl->dispatcher_->getTaskState(model.id)) {
+        snap.state       = st->state();
+        snap.speed       = st->speed();
+        snap.downloaded  = static_cast<double>(st->downloadedBytes());
+        auto const total = st->totalBytes();
+        if (total >= 0) snap.fileSize = total;
+    }
+    return snap;
 }
 
 std::vector<script::TaskSnapshot> AppService::taskSnapshots() const {
@@ -587,8 +593,7 @@ std::vector<script::TaskSnapshot> AppService::taskSnapshots() const {
     if (!impl->database_) return result;
     try {
         impl->database_->forEachTask([this, &result](std::shared_ptr<TaskModel> const& model) {
-            auto snap = taskSnapshot(model->id);
-            if (snap) result.push_back(std::move(*snap));
+            if (auto snap = makeSnapshot(*model)) result.push_back(std::move(*snap));
             return true;
         });
     } catch (std::exception const& e) {

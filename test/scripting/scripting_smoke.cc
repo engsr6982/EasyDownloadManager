@@ -55,7 +55,7 @@ void dumpConsole(ScriptingBootstrap& bootstrap, std::string const& name) {
     }
 }
 
-int report(ScriptingBootstrap& bootstrap, bool downloadOk) {
+int report(ScriptingBootstrap& bootstrap, bool downloadOk, bool dedupeOk) {
     auto scripts = bootstrap.discoverScripts();
     bool loggerOk{false};
     bool rewriterOk{false};
@@ -92,12 +92,15 @@ int report(ScriptingBootstrap& bootstrap, bool downloadOk) {
 
     std::printf("\n===== summary =====\n");
     std::printf("download finished : %s\n", downloadOk ? "PASS" : "FAIL");
+    std::printf("dedupe guard      : %s\n", dedupeOk ? "PASS" : "FAIL");
     std::printf("notify hooks      : %s\n", loggerOk ? "PASS" : "FAIL");
     std::printf("afterFetchMeta    : %s\n", rewriterOk ? "PASS" : "FAIL");
     std::printf("async rewrite     : %s\n", asyncOk ? "PASS" : "FAIL");
     std::printf("error isolation   : %s (error scripts: %d)\n", errorIsolated ? "PASS" : "FAIL", errorCount);
 
-    return (downloadOk && loggerOk && rewriterOk && asyncOk && errorIsolated && errorCount == 1) ? 0 : 1;
+    return (downloadOk && dedupeOk && loggerOk && rewriterOk && asyncOk && errorIsolated && errorCount == 1)
+               ? 0
+               : 1;
 }
 
 } // namespace
@@ -178,7 +181,19 @@ int main(int argc, char** argv) {
     std::printf("task created: %d url=%s\n", (*created)->id, testUrl.toStdString().c_str());
     std::fflush(stdout);
 
+    // dedupe-guard 场景：任务 #1 激活期间用相同 URL 再创建，应被脚本取消
+    bool dedupeOk = false;
+    if (auto const second = service.createTask(testUrl, saveDir, false); second) {
+        std::fprintf(stderr, "dedupe: second task created (id=%d), guard ineffective\n", (*second)->id);
+        (void)service.taskAction((*second)->id, edm::script::TaskAction::Cancel);
+    } else {
+        auto const reason = second.error().message();
+        dedupeOk = reason.find("取消") != std::string::npos;
+        std::printf("dedupe: second create rejected: %s\n", reason.c_str());
+    }
+    std::fflush(stdout);
+
     app.exec();
 
-    return report(bootstrap, *downloadOk);
+    return report(bootstrap, *downloadOk, dedupeOk);
 }

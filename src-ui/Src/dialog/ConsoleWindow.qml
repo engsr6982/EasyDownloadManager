@@ -10,7 +10,8 @@ import edm.qml.ui 1.0
  * 虚拟控制台窗口：与主窗口一致的无边框 Fluent 外观（DWM 阴影 + 边缘拖拽缩放），
  * 独立非模态窗口，实时查看某个脚本的运行时日志。
  * 标题栏承载全部工具（自动滚动/清空/置顶/关闭）；日志区为终端风格深色底，
- * 与标题栏以直线分割；关闭窗口后日志仍持续入缓冲，重开即见全量历史。
+ * 整块富文本按行渲染（等级着色在 ScriptLogModel 统一定义），支持选择与 Ctrl+C 复制；
+ * 关闭窗口后日志仍持续入缓冲，重开即见全量历史。
  */
 Window {
     id: consoleRoot
@@ -20,13 +21,8 @@ Window {
     property var logModel: null // QmlScriptManager.consoleModel(name)
     property bool pinned: false
 
-    // 终端配色（黑底上需比浅色主题常量更高的明度才够对比）
+    // 终端配色（等级色板定义在 ScriptLogModel::logHtml）
     readonly property color termBg: "#1F1F1F"
-    readonly property color termTime: "#9A9A9A"
-    readonly property color termDebug: "#8C8C8C"
-    readonly property color termInfo: "#4DA3FF"
-    readonly property color termWarn: Constants.warning
-    readonly property color termError: "#F14C4C"
 
     width: 720
     height: 480
@@ -52,14 +48,23 @@ Window {
         AppController.setWindowIcon(consoleRoot, ":/assets/icons/console.png");
     }
 
+    // 供外部验证渲染结果（logEdit 在组件内部作用域）
+    readonly property int renderedLength: logEdit.length
+
     function openFor(name, version) {
         consoleRoot.scriptName = name;
         consoleRoot.scriptVersion = version;
         consoleRoot.logModel = ScriptManager.consoleModel(name);
+        // 打开与切换脚本都立即渲染当前缓冲；contentsChanged 只负责后续增量
+        logEdit.text = consoleRoot.logModel ? consoleRoot.logModel.logHtml() : "";
         followSwitch.checked = true;
         consoleRoot.show();
         consoleRoot.raise();
-        Qt.callLater(consoleList.positionViewAtEnd);
+        Qt.callLater(consoleRoot.scrollToEnd);
+    }
+
+    function scrollToEnd() {
+        logFlick.contentY = Math.max(0, logEdit.contentHeight - logFlick.height);
     }
 
     function togglePinned() {
@@ -71,6 +76,17 @@ Window {
                             : (consoleRoot.flags & ~Qt.WindowStaysOnTopHint);
         consoleRoot.show();
         consoleRoot.raise();
+    }
+
+    // 模型变更：重建富文本并按需跟随滚动
+    Connections {
+        target: consoleRoot.logModel
+        function onContentsChanged() {
+            logEdit.text = consoleRoot.logModel ? consoleRoot.logModel.logHtml() : "";
+            if (followSwitch.checked) {
+                Qt.callLater(consoleRoot.scrollToEnd);
+            }
+        }
     }
 
     // ---- 标题栏（拖拽移动 + 工具 + 关闭） ----
@@ -191,90 +207,40 @@ Window {
             color: consoleRoot.termBg
             clip: true
 
-            ListView {
-                id: consoleList
+            Flickable {
+                id: logFlick
                 anchors.fill: parent
                 anchors.margins: 8
-                clip: true
-                model: consoleRoot.logModel
-                spacing: 2
-                flickDeceleration: 4000
+                contentWidth: width
+                contentHeight: logEdit.contentHeight
+                boundsBehavior: Flickable.StopAtBounds
 
                 ScrollBar.vertical: ScrollBar {}
 
-                // 新日志到达时若在底部则自动跟随（实时会话体验）
-                onCountChanged: {
-                    if (followSwitch.checked) {
-                        Qt.callLater(consoleList.positionViewAtEnd);
-                    }
+                TextEdit {
+                    id: logEdit
+                    width: logFlick.width
+                    readOnly: true
+                    selectByMouse: true
+                    activeFocusOnPress: false
+                    textFormat: TextEdit.RichText
+                    wrapMode: TextEdit.WrapAnywhere
+                    color: "#E8E8E8"
+                    // 选中高亮沿用终端信息色
+                    selectionColor: "#4DA3FF"
+                    selectedTextColor: consoleRoot.termBg
+                    font.family: "Consolas, 'Microsoft YaHei', monospace"
+                    font.pixelSize: 11
                 }
+            }
 
-                delegate: Item {
-                    width: consoleList.width
-                    height: line.implicitHeight + 2
-
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: 4
-
-                        Text {
-                            text: model.time
-                            font.family: "Consolas, monospace"
-                            font.pixelSize: 11
-                            color: consoleRoot.termTime
-                            Layout.preferredWidth: 70
-                        }
-
-                        Text {
-                            text: {
-                                switch (model.level) {
-                                case ScriptLogModel.Error: return "[error]";
-                                case ScriptLogModel.Warn: return "[warn]";
-                                case ScriptLogModel.Debug: return "[debug]";
-                                default: return "[info]";
-                                }
-                            }
-                            font.family: "Consolas, monospace"
-                            font.pixelSize: 11
-                            font.bold: model.level === ScriptLogModel.Error
-                            color: {
-                                switch (model.level) {
-                                case ScriptLogModel.Error: return consoleRoot.termError;
-                                case ScriptLogModel.Warn: return consoleRoot.termWarn;
-                                case ScriptLogModel.Debug: return consoleRoot.termDebug;
-                                default: return consoleRoot.termInfo;
-                                }
-                            }
-                            Layout.preferredWidth: 52
-                        }
-
-                        Text {
-                            id: line
-                            text: model.message
-                            font.family: "Consolas, 'Microsoft YaHei', monospace"
-                            font.pixelSize: 11
-                            color: {
-                                switch (model.level) {
-                                case ScriptLogModel.Error: return consoleRoot.termError;
-                                case ScriptLogModel.Warn: return consoleRoot.termWarn;
-                                case ScriptLogModel.Debug: return consoleRoot.termDebug;
-                                default: return "#E8E8E8";
-                                }
-                            }
-                            wrapMode: Text.WrapAnywhere
-                            Layout.fillWidth: true
-                        }
-                    }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    visible: consoleList.count === 0
-                    text: qsTr("暂无日志")
-                    font.family: Constants.fontFamily
-                    font.pixelSize: Constants.fontSizeBody
-                    color: consoleRoot.termDebug
-                }
+            Text {
+                anchors.centerIn: parent
+                visible: logEdit.length === 0
+                text: qsTr("暂无日志")
+                font.family: Constants.fontFamily
+                font.pixelSize: Constants.fontSizeBody
+                color: "#8C8C8C"
             }
         }
     }

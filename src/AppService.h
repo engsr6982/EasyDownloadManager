@@ -57,6 +57,9 @@ public:
     // ---- 脚本 tasks 绑定的数据源 ----
     std::optional<script::TaskSnapshot> taskSnapshot(int taskId) const;
     std::vector<script::TaskSnapshot>   taskSnapshots() const;
+
+    /// 由 TaskModel 构建快照（不触碰数据库锁；调用方负责持锁上下文）
+    std::optional<script::TaskSnapshot> makeSnapshot(edm::TaskModel const& model) const;
     /// 批量操作：返回受影响的任务数量
     int  pauseAllTasks();
     int  resumePausedTasks();

@@ -208,6 +208,10 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
 20. C++ 侧 `QIcon`/`QFile` 按文件名处理资源路径，只认 ":/..." 短形式；"qrc:/..." 两斜杠形式
     只有 QML URL 层能解析，C++ 传入结果为空且无报错。QML `Window` 类型无 icon 属性，须从
     C++ `setWindowIcon` 设置。
+21. `AppService::taskSnapshots` 曾在 forEachTask 持锁回调里嵌套调用 taskSnapshot（内部对同一
+    数据库互斥锁二次加锁），同线程触发 EDEADLK 被 catch 吞掉，tasks.getAll 恒为空且无异常
+    浮出。持锁遍历内复用无锁的 makeSnapshot(model)；此类嵌套加锁在 catch-all 环境下静默
+    失效，E2E 必须覆盖 tasks.getAll 的数据可见性。
 19. QML 侧无边框窗口（`installWindowFrameless`）：窗口隐藏时 Qt 可能销毁平台窗口（HWND 变化），
     chrome 须在每次 `visibleChanged(true)` 时重新施加，否则重开窗口阴影丢失；动态改 flags
     （如 StaysOnTop）后需 hide 加 show 才生效。

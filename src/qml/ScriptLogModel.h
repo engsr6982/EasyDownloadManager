@@ -32,7 +32,13 @@ public:
     QVariant               data(QModelIndex const& index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
+    /// 全量日志的着色富文本（终端渲染用；等级色板在此统一定义）
+    Q_INVOKABLE QString logHtml() const;
+
     void clear();
+
+signals:
+    void contentsChanged();
 
 private:
     void onConsoleChanged();

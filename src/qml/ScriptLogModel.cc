@@ -53,6 +53,53 @@ QHash<int, QByteArray> ScriptLogModel::roleNames() const {
     };
 }
 
+QString ScriptLogModel::logHtml() const {
+    if (!console_) return {};
+    auto const& entries = console_->entries();
+    QString     out;
+    out.reserve(256 * entries.size());
+    for (auto const& entry : entries) {
+        QString levelColor;
+        QString msgColor;
+        QString levelTag;
+        switch (entry.level) {
+        case static_cast<int>(script::LogLevel::Error):
+            levelTag   = "error";
+            levelColor = "#F14C4C";
+            msgColor   = "#F14C4C";
+            break;
+        case static_cast<int>(script::LogLevel::Warn):
+            levelTag   = "warn";
+            levelColor = "#FFB900";
+            msgColor   = "#FFB900";
+            break;
+        case static_cast<int>(script::LogLevel::Debug):
+            levelTag   = "debug";
+            levelColor = "#8C8C8C";
+            msgColor   = "#8C8C8C";
+            break;
+        default:
+            levelTag   = "info";
+            levelColor = "#4DA3FF";
+            msgColor   = "#E8E8E8";
+            break;
+        }
+        out += QStringLiteral(
+                   "<span style=\"color:#9A9A9A\">%1</span> <span style=\"color:%2\">[%3]</span>"
+                   " <span style=\"color:%4\">%5</span><br>"
+        )
+                   .arg(
+                       QString::fromStdString(entry.time).toHtmlEscaped(),
+                       levelColor,
+                       levelTag,
+                       msgColor,
+                       QString::fromStdString(entry.message).toHtmlEscaped()
+                   );
+    }
+    if (out.endsWith("<br>")) out.chop(4);
+    return out;
+}
+
 void ScriptLogModel::onConsoleChanged() {
     if (!console_) return;
     int const newCount = static_cast<int>(console_->entries().size());
@@ -66,6 +113,7 @@ void ScriptLogModel::onConsoleChanged() {
         knownCount_ = newCount;
         endResetModel();
     }
+    emit contentsChanged();
 }
 
 void ScriptLogModel::clear() {
