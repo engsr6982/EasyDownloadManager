@@ -12,7 +12,7 @@ Promise 做异步改写，其余钩子为同步。
 
 脚本目录默认为 `%LOCALAPPDATA%/EasyDownloadManager/scripts`，可用环境变量 `EDM_SCRIPT_DIR` 覆盖。
 将包含 `manifest.json` 的脚本文件夹放入该目录，或在插件中心导入；卡片可启用、禁用、
-重载脚本，虚拟控制台实时显示日志与异常。
+重载、卸载脚本（卸载会物理删除插件目录），虚拟控制台实时显示日志与异常。
 
 ## Manifest
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "Global.h"
 #include "expected.h"
 
 #include <atomic>
@@ -22,6 +23,11 @@ namespace edm::downloader {
 
 class DownloadState;
 struct DownloadRange;
+
+/// 删除任务的临时文件族（<name>.edm / <stem>(<n>)<ext>.edm 及对应 .meta）。
+/// .meta 记录归属 taskId：匹配或缺失的删除，属于其他同名任务的跳过。
+/// 供宿主在"重新下载/删除任务"前清理孤儿临时文件使用。
+void removeTaskTempFiles(std::string const& saveDir, std::string const& fileName, TaskId taskId);
 
 class DownloadTask final : public std::enable_shared_from_this<DownloadTask> {
 private:

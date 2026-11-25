@@ -206,6 +206,36 @@ std::optional<std::string> ScriptingBootstrap::importScript(std::string const& s
     return std::nullopt;
 }
 
+std::optional<std::string> ScriptingBootstrap::uninstallScript(std::string const& name) {
+    // 目录取自发现列表（scriptsDir 的直接子目录），不信任外部传入的路径
+    auto scripts = discoverScripts();
+    auto it      = std::find_if(scripts.begin(), scripts.end(), [&](DiscoveredScript const& s) {
+        return s.manifest.name == name;
+    });
+    if (it == scripts.end()) {
+        return fmt::format("script \"{}\" not found", name);
+    }
+
+    // 已加载则安全禁用：onDisable + teardown 回收监听器/命令/定时器，此后才动磁盘
+    unloadScript(name);
+
+    // 从禁用配置移除，避免残留指向已删除插件的条目
+    auto disabled = services_->disabledScripts();
+    if (std::erase(disabled, name) > 0) {
+        services_->setDisabledScripts(disabled);
+    }
+
+    std::error_code fsEc;
+    std::filesystem::remove_all(it->dir, fsEc);
+    if (fsEc) {
+        return fmt::format("delete {} failed: {}", it->dir, fsEc.message());
+    }
+
+    clearLoadError(name);
+    emitChanged();
+    return std::nullopt;
+}
+
 bool ScriptingBootstrap::reloadScript(std::string const& name) {
     unloadScript(name);
     return loadScript(name);

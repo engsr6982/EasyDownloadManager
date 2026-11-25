@@ -6,6 +6,7 @@
 #include "database/DownloadDatabase.h"
 #include "database/TaskModel.h"
 #include "database/TaskModelConversion.h"
+#include "downloader/DownloadTask.h"
 #include "downloader/DownloadTypes.h"
 #include "scripting/engine/ScriptEventBus.h"
 #include "scripting/engine/ScriptingBootstrap.h"
@@ -705,11 +706,9 @@ Expected<> AppService::redownloadTask(int taskId) {
         //    必须在动临时文件之前完成，否则会和仍在写的 worker 抢文件。
         if (implPtr->dispatcher_) implPtr->dispatcher_->removeTask(taskId);
 
-        // 2) 清掉临时文件与旧进度；最终文件保留，下载校验通过后才覆盖
-        auto basePath = QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName);
-        for (auto const& suffix : {QStringLiteral(".edm.meta"), QStringLiteral(".edm")}) {
-            QFile::remove(basePath + suffix);
-        }
+        // 2) 清掉临时文件与旧进度；最终文件保留，下载校验通过后才覆盖。
+        //    临时文件族按引擎命名规则（<name>.edm / <stem>(<n>)<ext>.edm）由引擎侧清理
+        downloader::removeTaskTempFiles(model->saveDir, model->fileName, taskId);
 
         // 3) 重置任务记录。id 保持不变：headers 行与 spdlog 日志都绑定该 id。
         model->state = TaskState::Pending;
@@ -826,14 +825,11 @@ Expected<> AppService::deleteTask(int taskId, bool deleteFiles) {
             try {
                 auto model = implPtr->database_->getTaskById(taskId);
                 if (model) {
-                    auto basePath =
-                        QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName);
-                    // 删除最终文件、临时下载文件与进度元数据
-                    QString const suffixes[] =
-                        {QStringLiteral(""), QStringLiteral(".edm"), QStringLiteral(".edm.meta")};
-                    for (auto const& suffix : suffixes) {
-                        QFile::remove(basePath + suffix);
-                    }
+                    // 最终文件按 fileName 定位；临时文件族由引擎侧按命名规则清理
+                    QFile::remove(
+                        QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName)
+                    );
+                    downloader::removeTaskTempFiles(model->saveDir, model->fileName, taskId);
                 }
             } catch (std::exception const& e) {
                 implPtr->reportError(taskId, QStringLiteral("删除文件失败: "), QString::fromStdString(e.what()));

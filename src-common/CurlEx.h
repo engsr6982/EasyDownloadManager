@@ -55,6 +55,12 @@ public:
     CurlEx& reset();
 
     /**
+     * 销毁句柄并关闭其连接缓存：任务暂停/驻留等待期间调用，避免 idle TCP 长挂。
+     * 句柄置空，再次传输前由调用方重建。
+     */
+    void disconnect();
+
+    /**
      * 设置选项
      * @see curl_easy_setopt
      */

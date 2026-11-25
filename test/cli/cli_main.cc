@@ -113,10 +113,11 @@ int main(int argc, char* argv[]) try {
         configure->proxyUrl = it->second;
     }
 
-    edm::TaskLoggerManager::init();
+    // 任务日志收敛到 CWD 下的 .tmp，不污染工作目录与输出目录
+    edm::TaskLoggerManager::init(".tmp/logs/cli");
 
-    CliObserver                   observer;
-    edm::Dispatcher               dispatcher(&observer);
+    CliObserver     observer;
+    edm::Dispatcher dispatcher(&observer);
 
     auto created = dispatcher.createTask(configure);
     if (!created) {

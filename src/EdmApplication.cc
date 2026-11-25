@@ -12,6 +12,7 @@
 #include "scripting/api/ScriptHostServices.h"
 #include "scripting/engine/ScriptingBootstrap.h"
 #include "scripting/qt/ScriptQtHost.h"
+#include "utils/TaskLogger.h"
 
 #include <QApplication>
 #include <QMenu>
@@ -53,6 +54,9 @@ struct EdmApplication::Impl {
     bool                  shadowFilterInstalled_{false};
 
     void initiailze() {
+        // 0. 任务级日志：先于其余装配初始化，落盘到应用数据目录下的 logs/
+        TaskLoggerManager::init(EdmConfig::getAppDataDir().toStdString() + "/logs");
+
         // 1. 应用服务：数据库 + 下载引擎 + 观察器接线
         appService_ = std::make_unique<AppService>();
 
@@ -400,6 +404,9 @@ struct EdmApplication::Impl {
         appService_->shutdown();
         appService_.reset();
         scripting_.reset();
+
+        // 任务日志全部落盘后关闭 spdlog
+        TaskLoggerManager::shutdown();
     }
 };
 

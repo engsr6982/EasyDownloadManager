@@ -29,6 +29,10 @@ cmake -S . -B build \
   -DCMAKE_PREFIX_PATH=<Qt>/6.8.3/msvc2022_64
 ```
 
+vcpkg 二进制缓存与源码下载缓存收敛在仓库 `.vcpkg-cache/`（根 CMakeLists 在 project() 之前
+设 `VCPKG_DEFAULT_BINARY_CACHE` 与 `VCPKG_DOWNLOADS`），删除只影响增量速度。用户全局
+`%LOCALAPPDATA%/vcpkg` 不属于本项目，禁止向其写入。
+
 MSVC 运行时强制 DLL 变体（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`），vcpkg 二进制必须匹配。
 `WIN32_EXECUTABLE` 为 FALSE 使 qDebug 输出可见；Debug 构建定义 `EDM_DEBUG`；
 `src-downloader` 目标定义 `SPDLOG_FMT_EXTERNAL`、`CURL_STATICLIB`、`NOMINMAX`。
@@ -51,14 +55,16 @@ MSVC 运行时强制 DLL 变体（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`）�
 ### 下载引擎（src-downloader）
 
 分层、回调驱动、持久 worker 池：worker 线程随任务常驻（世代号驱动重入，
-pause 驻留而非退出），curl 句柄线程内持久复用（连接缓存跨分片保活）。
+pause 驻留而非退出），curl 句柄任务运行期内持久复用（连接缓存跨分片保活）；
+驻留等待期与终态回收时断开连接，不持 idle TCP。
 
 - `Dispatcher`：顶层编排器，互斥锁下持有 activeTasks_，经 `ITaskObserver*`（生命周期须长于
   dispatcher）接收状态/错误/文件名变更；入口 createTask/pauseTask/resumeTask/cancelTask/updateSpeeds
 - `DownloadTask`：持有活动任务，持久 worker 池（任务级复用，workerLaunchCount 观测
-  线程创建批次），`.meta` sidecar 记录分片进度供续传；不可拷贝不可移动
+  线程创建批次），`.meta` sidecar 记录分片进度与归属 taskId 供续传；不可拷贝不可移动
   （enable_shared_from_this）
-- `DownloadWorker`：每分片一个 curl 传输，经共享原子标志接收暂停/取消
+- `DownloadWorker`：每分片一个 curl 传输，经共享原子标志接收暂停/取消；驻留前断连，
+  再次传输前按需重建句柄
 - `DownloadState`：状态/字节的原子量与 shared_mutex 保护的字符串，GUI 轮询的实时数据源
 - `TaskContext`（DownloadTypes.h）：curl 会话工厂，由 TaskModel 构造，携带代理/UA/头/线程/带宽/重试
 - `TaskLogger`：按 TaskId 的 spdlog 实例，只用 `EDM_LOG_*(taskId, fmt, ...)` 宏
@@ -75,7 +81,8 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
   行由 service 信号驱动；1 秒定时器调用 updateSpeeds 并发 dataChanged（任务列表行）；
   `getTaskDetail(id)` 惰性创建 `QmlTaskDetail`（实时速率、ETA、错误串、rangesModel 线程状态）。
   任务详情实时数据为拉取式：抽屉可见期的定时器调用 `detail.pullLive()`（内部
-  refreshDetailById 从引擎读取），不可见不拉取，不做全局定时推送
+  refreshDetailById 从引擎读取，经 updateDetailFromRow 统一推送 setLiveState 与
+  rangesModel），不可见不拉取，不做全局定时推送；行 1s 刷新对已缓存 detail 走同一链路
 - `QmlSettings`：包装 EdmConfig 单例，QML 双向绑定设置项
 - `QmlController`：应用级动作（最小化到托盘、打开文件/文件夹、剪贴板、无边框窗口外观
   `installWindowFrameless`）
@@ -104,7 +111,7 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
 基于生命周期钩子的扩展系统：脚本运行于每脚本独立的 jspp(QuickJS) 引擎，监听下载引擎事件，
 经改写事件对象控制下载行为或接收通知。已实现 11 个钩子（可变钩子支持同步与 Promise 异步改写，
 取消经 cancel(reason) 贯通任务终态）、events/logger/tasks/fs/path/http/utils/commands/constants/notify
-与顶层定时器绑定、插件中心、命令面板、虚拟控制台、manifest 校验与导入。
+与顶层定时器绑定、插件中心、命令面板、虚拟控制台、manifest 校验与导入/卸载。
 
 - `src/scripting/api/`：脚本可见的 C++ 接口与数据模型（Console/Events/Manifest/Fs/Http/
   HostServices），Qt-free
@@ -209,6 +216,9 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
     成对核对，cancelReason 方法与 cancel 可选参数曾同时缺失。
 18. `_deps` 内的 FetchContent 副本被中断的构建/配置破坏后（如半克隆、.git 缺失），增量
     configure 无法自愈；删 `_deps` 重新配置，GitHub 拉取需走代理环境变量。
+19. QML 侧无边框窗口（`installWindowFrameless`）：窗口隐藏时 Qt 可能销毁平台窗口（HWND 变化），
+    chrome 须在每次 `visibleChanged(true)` 时重新施加，否则重开窗口阴影丢失；动态改 flags
+    （如 StaysOnTop）后需 hide 加 show 才生效。
 20. C++ 侧 `QIcon`/`QFile` 按文件名处理资源路径，只认 ":/..." 短形式；"qrc:/..." 两斜杠形式
     只有 QML URL 层能解析，C++ 传入结果为空且无报错。QML `Window` 类型无 icon 属性，须从
     C++ `setWindowIcon` 设置。
@@ -220,9 +230,11 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
     线程执行时栈溢出崩溃（bash 报 exit 127）。大缓冲一律堆分配。
 23. clang-format 会按字母序重排 include，windows.h 被排到 bcrypt.h 之后导致 LONG/ULONG
     未定义；须用 clang-format off/on 钳住顺序敏感的 include 组。
-19. QML 侧无边框窗口（`installWindowFrameless`）：窗口隐藏时 Qt 可能销毁平台窗口（HWND 变化），
-    chrome 须在每次 `visibleChanged(true)` 时重新施加，否则重开窗口阴影丢失；动态改 flags
-    （如 StaysOnTop）后需 hide 加 show 才生效。
+24. `QmlRangeModel::update(nullptr)` 行数取占位线程数而引擎槽位指针为空，循环解引用崩溃；
+    无实时状态必须短路返回。`QmlTaskDetail::setLiveState` 曾无调用点（抽屉速率/ETA/线程行
+    全为死数据），实时推送统一收口在 `updateDetailFromRow`。
+25. `TaskLoggerManager::init` 不调用时日志目录退化为 CWD 相对 `logs/`，写进进程启动目录且
+    随工作目录漂移；应用入口（EdmApplication）与测试入口必须显式传入绝对或仓库内 `.tmp` 路径。
 
 ## 未决项
 

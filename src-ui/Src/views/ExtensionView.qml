@@ -10,11 +10,13 @@ import edm.qml.ui 1.0
 
 /**
  * 插件中心：工具栏（导入 / 全部重载 / 打开脚本目录）+ 扩展卡片列表，
- * 每个扩展独立启停/重载；虚拟控制台以独立非模态窗口查看实时运行日志。
+ * 每个扩展独立启停/重载/卸载；虚拟控制台以独立非模态窗口查看实时运行日志。
  */
 Item {
     id: root
     anchors.fill: parent
+
+    signal showUninstallPluginDialog(string name, string dirPath)
 
     // 导入脚本包（选择包含 manifest.json 的目录）
     FolderDialog {
@@ -27,6 +29,7 @@ Item {
         id: scriptContextMenu
         property string targetName: ""
         property string targetVersion: ""
+        property string targetDir: ""
 
         FluMenuItem {
             bindMenu: scriptContextMenu
@@ -40,6 +43,16 @@ Item {
             iconText: "\uF42F"
             text: qsTr("打开文件夹")
             onTriggered: ScriptManager.openScriptDir(scriptContextMenu.targetName)
+        }
+
+        FluMenuSeparator {}
+
+        FluMenuItem {
+            bindMenu: scriptContextMenu
+            iconText: "\uf34d"
+            text: qsTr("卸载插件")
+            isDanger: true
+            onTriggered: root.showUninstallPluginDialog(scriptContextMenu.targetName, scriptContextMenu.targetDir)
         }
     }
 
@@ -129,6 +142,7 @@ Item {
                     onMoreRequested: (name, version, targetItem, x, y) => {
                         scriptContextMenu.targetName = name;
                         scriptContextMenu.targetVersion = version;
+                        scriptContextMenu.targetDir = dirPath;
                         scriptContextMenu.popup(targetItem, x, y);
                     }
                 }

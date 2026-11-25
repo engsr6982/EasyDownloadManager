@@ -14,10 +14,8 @@ Window {
     height: 500
     visible: true
     title: Constants.projectName
-    // 注意：显式赋值 flags 会覆盖默认的窗口提示位。必须保留 MinimizeButtonHint，
-    // 否则 Windows 不会给窗口加 WS_MINIMIZEBOX，点击任务栏图标就无法最小化。
-    // 注意：显式赋值 flags 会覆盖默认的窗口提示位。必须保留 MinimizeButtonHint/SystemMenuHint，
-    // 否则 Windows 不会给窗口加 WS_MINIMIZEBOX/WS_SYSMENU，点击任务栏图标就无法最小化。
+    // 显式赋值 flags 会覆盖默认窗口提示位：需保留 MinimizeButtonHint 与 SystemMenuHint，
+    // 否则 Windows 不加 WS_MINIMIZEBOX/WS_SYSMENU，任务栏点击无法最小化
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowMinimizeButtonHint | Qt.WindowSystemMenuHint
 
     color: Constants.windowBase
@@ -325,6 +323,10 @@ Window {
         id: globalDeleteTaskDialog
         parent: contentContainer
     }
+    UnInstallExtensionDialog {
+        id: globalUninstallDialog
+        parent: contentContainer
+    }
 
     Connections {
         target: viewLoader.item
@@ -340,11 +342,28 @@ Window {
             globalDeleteTaskDialog.taskId = taskId;
             globalDeleteTaskDialog.open();
         }
+        function onShowUninstallPluginDialog(name, dirPath) {
+            globalUninstallDialog.pluginName = name;
+            globalUninstallDialog.dirPath = dirPath;
+            globalUninstallDialog.open();
+        }
     }
     Connections {
         target: globalDeleteTaskDialog
         function onConfirmed(taskId, deleteFiles) {
             TaskListModel.deleteTask(taskId, deleteFiles);
+        }
+    }
+    Connections {
+        target: globalUninstallDialog
+        function onConfirmed(name) {
+            ScriptManager.uninstallScript(name);
+        }
+    }
+    Connections {
+        target: ScriptManager
+        function onScriptActionError(action, name, message) {
+            errorToast.show(message);
         }
     }
 }

@@ -13,16 +13,15 @@
 #include <vector>
 
 
-#include <glaze/beve/write.hpp>
-#include <glaze/glaze.hpp>
 #include <glaze/beve/lazy.hpp>
+#include <glaze/beve/write.hpp>
 #include <glaze/core/context.hpp>
+#include <glaze/glaze.hpp>
 
 #include <fmt/format.h>
 
 
-
-namespace edm ::schema {
+namespace edm::schema {
 
 struct ChecksumHasher {
     static constexpr uint64_t kPrime  = 1099511628211ULL;
@@ -240,7 +239,11 @@ public:
 } // namespace edm::schema
 
 
-namespace edm ::schema {
+namespace edm::schema {
+
+/// 进度元数据（.meta）信封参数与载荷
+inline constexpr uint32_t kProgressMagic   = 0x4D444545; // 小端魔数 "EEDM"，标识 EDM 进度元数据文件
+inline constexpr uint32_t kProgressVersion = 3;
 
 struct RangeRecord {
     int64_t start;
@@ -251,6 +254,7 @@ struct RangeRecord {
 
 struct MetaPaylad {
     int64_t                  fileSize;
+    int32_t                  taskId;
     uint64_t                 rangeCount;
     std::vector<RangeRecord> ranges;
 };

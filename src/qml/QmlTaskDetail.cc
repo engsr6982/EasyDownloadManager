@@ -113,6 +113,15 @@ void QmlRangeModel::setThreadCount(int threadCount) {
 }
 
 void QmlRangeModel::update(downloader::DownloadState const* state) {
+    // state 为空时无引擎槽位可读：占位行由 setThreadCount 维护，此处仅置模型为非活跃。
+    if (state == nullptr) {
+        if (active_) {
+            active_ = false;
+            emit activeChanged();
+        }
+        return;
+    }
+
     // 线程槽位是定长原子数组，任何阶段读取都安全（worker 线程独占写各自槽位）。
     // 持久 worker 协议下 pause 为驻留不退出：暂停/失败/完成后的槽位依然有效，
     // 线程行照常显示真实状态（已停止/已完成）。

@@ -7,6 +7,7 @@
         <file>Src/components/TaskCard.qml</file>
         <file>Src/Constants.qml</file>
         <file>Src/dialog/DeleteTaskDialog.qml</file>
+        <file>Src/dialog/UnInstallExtensionDialog.qml</file>
         <file>Src/dialog/NewTaskDialog.qml</file>
         <file>Src/drawer/TaskDetailDrawer.qml</file>
         <file>Src/fluent/FluButton.qml</file>

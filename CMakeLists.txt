@@ -1,4 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
+
+# vcpkg 缓存收敛进项目（须在 project() 之前设置，toolchain 在 configure 期消费）：
+# 二进制缓存与源码/工具下载缓存不出仓库，不写用户全局目录
+set(EDM_VCPKG_CACHE "${CMAKE_CURRENT_SOURCE_DIR}/.vcpkg-cache")
+file(MAKE_DIRECTORY "${EDM_VCPKG_CACHE}/binary")
+file(MAKE_DIRECTORY "${EDM_VCPKG_CACHE}/downloads")
+set(ENV{VCPKG_DEFAULT_BINARY_CACHE} "${EDM_VCPKG_CACHE}/binary")
+set(ENV{VCPKG_DOWNLOADS} "${EDM_VCPKG_CACHE}/downloads")
+
 project(EasyDownloadManager VERSION 0.1 LANGUAGES CXX)
 
 # --- 基础设置 ---
@@ -128,6 +137,7 @@ qt_add_qml_module(EasyDownloadManager
         src-ui/Src/components/ExtensionCard.qml
         src-ui/Src/dialog/NewTaskDialog.qml
         src-ui/Src/dialog/DeleteTaskDialog.qml
+        src-ui/Src/dialog/UnInstallExtensionDialog.qml
         src-ui/Src/dialog/ConsoleWindow.qml
         src-ui/Src/dialog/CommandPalette.qml
         src-ui/Src/drawer/TaskDetailDrawer.qml

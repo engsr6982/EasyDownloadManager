@@ -56,6 +56,10 @@ public:
     /// 从外部目录导入脚本包（校验 manifest 后拷入脚本目录并加载）
     /// @return 失败时返回错误说明
     std::optional<std::string> importScript(std::string const& sourceDir);
+    /// 卸载并物理删除插件：先安全禁用（onDisable + teardown 回收监听器/命令/定时器），
+    /// 再从禁用配置移除并删除插件目录。目录经发现列表解析，不接受外部路径。
+    /// @return 失败时返回错误说明
+    std::optional<std::string> uninstallScript(std::string const& name);
     bool                       setEnabled(std::string const& name, bool enabled);
     bool                       reloadScript(std::string const& name);
     void                       reloadAll();

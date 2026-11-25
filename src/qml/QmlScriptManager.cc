@@ -179,6 +179,16 @@ bool QmlScriptManager::importScript(QString const& sourceDir) {
     return true;
 }
 
+bool QmlScriptManager::uninstallScript(QString const& name) {
+    if (!bootstrap_) return false;
+    auto const error = bootstrap_->uninstallScript(name.toStdString());
+    if (error) {
+        emit scriptActionError(QStringLiteral("卸载"), name, QString::fromStdString(*error));
+    }
+    onScriptsChanged();
+    return !error.has_value();
+}
+
 void QmlScriptManager::reloadAll() {
     if (!bootstrap_) return;
     bootstrap_->reloadAll();

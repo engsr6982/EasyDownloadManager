@@ -33,6 +33,8 @@ CurlEx& CurlEx::operator=(CurlEx&& o) noexcept {
     return *this;
 }
 
+void CurlEx::disconnect() { cleanup(); }
+
 CurlEx& CurlEx::reset() {
     if (!curl_) return *this;
     curl_easy_reset(curl_);

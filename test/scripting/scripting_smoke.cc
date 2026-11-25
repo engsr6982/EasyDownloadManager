@@ -6,7 +6,8 @@
  *   1. 脚本发现/manifest 校验/独立引擎加载（含 onLoad 抛错脚本的错误隔离）；
  *   2. beforeCreateTask / beforeFetchMeta / afterFetchMeta 可变钩子（含异步 Promise 改写）；
  *   3. taskStarted / taskProgress / taskCompleted 通知钩子；
- *   4. 单脚本异常不影响其他脚本与下载。
+ *   4. 单脚本异常不影响其他脚本与下载；
+ *   5. 插件卸载生命周期：导入 -> 加载 -> 卸载 -> 插件目录物理删除。
  *
  * 环境：
  *   EDM_SCRIPT_DIR    脚本目录
@@ -28,6 +29,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 
 #ifdef _WIN32
@@ -55,7 +57,7 @@ void dumpConsole(ScriptingBootstrap& bootstrap, std::string const& name) {
     }
 }
 
-int report(ScriptingBootstrap& bootstrap, bool downloadOk, bool dedupeOk) {
+int report(ScriptingBootstrap& bootstrap, bool downloadOk, bool dedupeOk, bool uninstallOk) {
     auto scripts = bootstrap.discoverScripts();
     bool loggerOk{false};
     bool rewriterOk{false};
@@ -96,9 +98,11 @@ int report(ScriptingBootstrap& bootstrap, bool downloadOk, bool dedupeOk) {
     std::printf("notify hooks      : %s\n", loggerOk ? "PASS" : "FAIL");
     std::printf("afterFetchMeta    : %s\n", rewriterOk ? "PASS" : "FAIL");
     std::printf("async rewrite     : %s\n", asyncOk ? "PASS" : "FAIL");
+    std::printf("uninstall probe   : %s\n", uninstallOk ? "PASS" : "FAIL");
     std::printf("error isolation   : %s (error scripts: %d)\n", errorIsolated ? "PASS" : "FAIL", errorCount);
 
-    return (downloadOk && dedupeOk && loggerOk && rewriterOk && asyncOk && errorIsolated && errorCount == 1)
+    return (downloadOk && dedupeOk && loggerOk && rewriterOk && asyncOk && uninstallOk && errorIsolated
+            && errorCount == 1)
                ? 0
                : 1;
 }
@@ -146,6 +150,42 @@ int main(int argc, char** argv) {
     };
 
     bootstrap.initialize(&services);
+
+    // 卸载生命周期探针：生成最小脚本包 -> 导入并确认加载 -> 卸载 -> 确认目录物理删除
+    bool uninstallOk{false};
+    {
+        // manifest 校验要求 name 与目录名一致
+        std::string const probeName   = "smoke-uninstall-probe";
+        auto const        probeSrcDir = std::filesystem::path{".tmp"} / probeName;
+        std::error_code   fsEc;
+        std::filesystem::remove_all(probeSrcDir, fsEc);
+        std::filesystem::create_directories(probeSrcDir, fsEc);
+        {
+            std::ofstream(probeSrcDir / "manifest.json")
+                << R"({"name": "smoke-uninstall-probe", "type": "edm-script", "entry": "index.js", "version": "0.0.1"})";
+            std::ofstream(probeSrcDir / "index.js") << "export default class Probe { onLoad() {} }\n";
+        }
+
+        auto imported = bootstrap.importScript(probeSrcDir.string());
+        auto loaded   = !imported && bootstrap.findEngine(probeName) != nullptr;
+        auto dirInScriptsDir =
+            std::filesystem::exists(std::filesystem::path{bootstrap.scriptsDir()} / probeName);
+
+        auto removed = bootstrap.uninstallScript(probeName);
+        uninstallOk  = loaded && dirInScriptsDir && !removed && bootstrap.findEngine(probeName) == nullptr
+                      && !std::filesystem::exists(std::filesystem::path{bootstrap.scriptsDir()} / probeName);
+        std::printf(
+            "uninstall probe: imported=%d loaded=%d dir=%d removed=%d\n",
+            !imported.has_value(),
+            loaded,
+            dirInScriptsDir,
+            !removed.has_value()
+        );
+        if (imported) std::fprintf(stderr, "uninstall probe import failed: %s\n", imported->c_str());
+        if (removed) std::fprintf(stderr, "uninstall probe uninstall failed: %s\n", removed->c_str());
+        std::filesystem::remove_all(probeSrcDir, fsEc);
+    }
+    std::fflush(stdout);
 
     auto downloadOk = std::make_shared<bool>(false);
     auto finished   = std::make_shared<bool>(false);
@@ -195,5 +235,5 @@ int main(int argc, char** argv) {
 
     app.exec();
 
-    return report(bootstrap, *downloadOk, dedupeOk);
+    return report(bootstrap, *downloadOk, dedupeOk, uninstallOk);
 }

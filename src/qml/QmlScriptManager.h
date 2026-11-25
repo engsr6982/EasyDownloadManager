@@ -16,7 +16,7 @@ namespace edm {
  * @brief ExtensionView（插件中心）的桥接单例。
  *
  * 以 QAbstractListModel 暴露扩展卡片数据（name/version/author/description/
- * state/errorText/dir），提供独立启停、独立重载、全局重载、打开目录与
+ * state/errorText/dir），提供独立启停、独立重载、全局重载、卸载删除、打开目录与
  * 虚拟控制台（每脚本一个 ScriptLogModel 弹窗数据源）。
  */
 class QmlScriptManager : public QAbstractListModel {
@@ -67,6 +67,8 @@ public:
     Q_INVOKABLE void reloadAll();
     /// 从外部目录导入脚本包（FolderDialog 选择结果）
     Q_INVOKABLE bool importScript(QString const& sourceDir);
+    /// 卸载插件：安全禁用后物理删除插件目录并刷新列表
+    Q_INVOKABLE bool uninstallScript(QString const& name);
     Q_INVOKABLE void openScriptsDir();
     Q_INVOKABLE void openScriptDir(QString const& name);
     /// 虚拟控制台数据源（脚本卸载后仍返回历史日志模型）

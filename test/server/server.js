@@ -134,6 +134,17 @@ app.get("/checksum", (req, res) => {
 
 // -- 共享的 Range 解析与发送逻辑 --------------------------------------
 function handleFileRequest(req, res, requireRange) {
+  // 仅对下载连接计数（keep-alive 复用的同一 socket 只计一次）：
+  // 监控端点（/stats /checksum /health）的连接不参与，避免测试自轮询污染读数。
+  if (!req.socket.__counted) {
+    req.socket.__counted = true;
+    totalConnections += 1;
+    activeConnections += 1;
+    req.socket.on("close", () => {
+      activeConnections -= 1;
+    });
+  }
+
   console.log(`\n--- Request: ${req.method} ${req.url} ---`);
   console.log("Request Headers:", JSON.stringify(req.headers, null, 2));
 
@@ -287,10 +298,4 @@ const server = app.listen(port, "127.0.0.1", () => {
   console.log(`  /health        – health check`);
 });
 
-server.on("connection", (socket) => {
-  totalConnections += 1;
-  activeConnections += 1;
-  socket.on("close", () => {
-    activeConnections -= 1;
-  });
-});
+// 连接计数改为请求级（见 handleFileRequest）：只统计下载连接，监控连接不计入。

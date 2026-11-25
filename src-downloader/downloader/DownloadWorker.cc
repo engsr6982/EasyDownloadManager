@@ -31,6 +31,16 @@ DownloadWorker::DownloadWorker(
 
 DownloadWorker::~DownloadWorker() = default;
 
+void DownloadWorker::disconnect() { curl_.disconnect(); }
+
+bool DownloadWorker::ensureHandle() {
+    if (curl_) return true;
+    auto curlExRes = makeCurlFromContext(config_);
+    if (!curlExRes) return false;
+    curl_ = std::move(curlExRes.value());
+    return true;
+}
+
 struct WorkerContext {
     std::FILE*         fp;
     DownloadRange*     range;
@@ -122,8 +132,8 @@ Expected<> DownloadWorker::downloadRange(std::shared_ptr<DownloadRange> const& r
     fseeko(fp, currentOffset, SEEK_SET); // Linux/macOS 支持 >2GB 文件的 fseek
 #endif
 
-    // 句柄复用：reset 清选项保留连接缓存，重放会话级选项
-    if (!curl_) {
+    // 句柄复用：reset 清选项保留连接缓存，重放会话级选项；disconnect 后在此重建
+    if (!ensureHandle()) {
         std::fclose(fp);
         EDM_LOG_ERROR(config_->id, "downloadRange: CURL handle unavailable");
         return makeStringError("CURL handle unavailable");
@@ -206,7 +216,7 @@ Expected<> DownloadWorker::downloadWholeFile(std::shared_ptr<DownloadRange> cons
         return makeStringError("Failed to open temp file for writing: " + outFilePath_);
     }
 
-    if (!curl_) {
+    if (!ensureHandle()) {
         std::fclose(fp);
         EDM_LOG_ERROR(config_->id, "downloadWholeFile: CURL handle unavailable");
         return makeStringError("CURL handle unavailable");

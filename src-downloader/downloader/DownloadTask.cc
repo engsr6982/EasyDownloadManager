@@ -24,13 +24,14 @@ namespace edm::downloader {
 
 namespace {
 
-constexpr auto     kTempFileExt     = ".edm";
-constexpr auto     kMetaFileExt     = ".meta";
-constexpr int64_t  kMinChunkSize    = 1024 * 1024;
-constexpr int64_t  kMaxChunkSize    = 8 * 1024 * 1024;
-constexpr int64_t  kChunkFanout     = 8;
-constexpr uint32_t kProgressMagic   = 0x4D444545; // "EEDM" little-endian marker for EDM progress metadata.
-constexpr uint32_t kProgressVersion = 2;
+constexpr auto    kTempFileExt  = ".edm";
+constexpr auto    kMetaFileExt  = ".meta";
+constexpr int64_t kMinChunkSize = 1024 * 1024;
+constexpr int64_t kMaxChunkSize = 8 * 1024 * 1024;
+constexpr int64_t kChunkFanout  = 8;
+
+using schema::kProgressMagic;
+using schema::kProgressVersion;
 
 
 /**
@@ -77,12 +78,30 @@ std::optional<std::string> fileNameFromContentDisposition(std::string const& val
     return std::nullopt;
 }
 
+/// 拆分文件名主干与扩展名；.tar.gz 这类复合扩展名整体处理，
+/// 序号插在主干与复合扩展名之间（name(1).tar.gz），不拆散原扩展名
+std::pair<std::string, std::string> splitNameAndExtension(std::filesystem::path const& path) {
+    auto ext     = path.extension().string();
+    auto stem    = path.stem().string();
+    auto toLower = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    };
+    auto const lowerExt = toLower(ext);
+    if ((lowerExt == ".gz" || lowerExt == ".bz2" || lowerExt == ".xz" || lowerExt == ".zst") && stem.size() > 4
+        && toLower(stem).ends_with(".tar")) {
+        return {stem.substr(0, stem.size() - 4), ".tar" + ext};
+    }
+    return {stem, ext};
+}
+
 std::filesystem::path uniqueFinalPath(std::filesystem::path path) {
     if (!std::filesystem::exists(path)) return path;
 
-    auto dir  = path.parent_path();
-    auto stem = path.stem().string();
-    auto ext  = path.extension().string();
+    auto dir         = path.parent_path();
+    auto [stem, ext] = splitNameAndExtension(path);
     for (int counter = 1;; ++counter) {
         auto suffixWithCount = fmt::format("{}({}){}", stem, counter, ext);
         auto candidate       = dir / suffixWithCount;
@@ -90,7 +109,68 @@ std::filesystem::path uniqueFinalPath(std::filesystem::path path) {
     }
 }
 
+/// 临时文件归属判定：读取 .meta 的 taskId，匹配则属于本任务（重启续传接管）
+bool tempPathOwnedByTask(std::filesystem::path const& metaPath, TaskId taskId) {
+    auto reader = schema::EnvelopeReader{kProgressMagic, kProgressVersion, metaPath};
+    auto data   = reader.read<schema::MetaPaylad>();
+    return data && data->taskId == taskId;
+}
+
+/// 临时文件路径：<name>.edm，冲突时按 name(n).ext.edm 递增；已存在但 .meta
+/// 归属本任务的路径直接复用（重启/恢复续传），并发同名任务互不误占
+std::filesystem::path uniqueTempPath(std::filesystem::path const& dir, std::string const& fileName, TaskId taskId) {
+    auto [stem, ext] = splitNameAndExtension(std::filesystem::path(fileName));
+    auto owned = [&](std::filesystem::path const& p) { return tempPathOwnedByTask(p.string() + kMetaFileExt, taskId); };
+
+    auto first = dir / (fileName + kTempFileExt);
+    if (!std::filesystem::exists(first) || owned(first)) return first;
+    for (int counter = 1;; ++counter) {
+        auto candidate = dir / fmt::format("{}({}){}{}", stem, counter, ext, kTempFileExt);
+        if (!std::filesystem::exists(candidate) || owned(candidate)) return candidate;
+    }
+}
+
 } // namespace
+
+void removeTaskTempFiles(std::string const& saveDir, std::string const& fileName, TaskId taskId) {
+    namespace fs = std::filesystem;
+    if (fileName.empty()) return;
+    auto const      dir = fs::path{saveDir};
+    std::error_code ec;
+    if (!fs::exists(dir, ec)) return;
+
+    auto [stem, ext] = splitNameAndExtension(fs::path{fileName});
+
+    // 候选形态：<fileName>.edm 与 <stem>(<n>)<ext>.edm
+    auto isTempOfName = [&](std::string const& name) {
+        if (name.size() <= 4 || !name.ends_with(kTempFileExt)) return false;
+        auto base = name.substr(0, name.size() - 4);
+        if (base == fileName) return true;
+        if (base.size() <= stem.size() + ext.size()) return false;
+        if (!base.starts_with(stem) || !base.ends_with(ext)) return false;
+        auto mid     = base.substr(stem.size(), base.size() - stem.size() - ext.size());
+        auto isDigit = [](unsigned char c) { return std::isdigit(c) != 0; };
+        return mid.size() >= 3 && mid.front() == '(' && mid.back() == ')'
+            && std::all_of(mid.begin() + 1, mid.end() - 1, isDigit);
+    };
+
+    // .meta 归属其他任务的不动；缺失/损坏视为孤儿一并清理
+    auto owned = [taskId](fs::path const& metaPath) {
+        auto reader = schema::EnvelopeReader{kProgressMagic, kProgressVersion, metaPath};
+        auto data   = reader.read<schema::MetaPaylad>();
+        return !data || data->taskId == taskId;
+    };
+
+    for (auto const& entry : fs::directory_iterator(dir, ec)) {
+        if (ec) break;
+        if (!entry.is_regular_file(ec)) continue;
+        auto const& path = entry.path();
+        if (!isTempOfName(path.filename().string())) continue;
+        if (!owned(path.string() + kMetaFileExt)) continue;
+        std::filesystem::remove(path, ec);
+        std::filesystem::remove(path.string() + kMetaFileExt, ec);
+    }
+}
 
 DownloadTask::DownloadTask(std::shared_ptr<edm::TaskContext> configure, ITaskObserver* observer)
 : configure_(std::move(configure)),
@@ -224,12 +304,21 @@ Expected<> DownloadTask::prepareTask() {
         setState(TaskState::Failed);
         return makeStringError(err);
     }
-    outFilePath_ =
-        (std::filesystem::path(configure_->saveDir) / (sanitizeFileName(configure_->fileName) + kTempFileExt)).string();
+    // 临时名与 .meta 同前缀：.meta 记录 taskId，供重启续传接管与并发同名任务区分归属
+    outFilePath_  = uniqueTempPath(configure_->saveDir, sanitizeFileName(configure_->fileName), taskId).string();
     metaFilePath_ = outFilePath_ + kMetaFileExt;
     EDM_LOG_DEBUG(taskId, "Output path: {}, Meta path: {}", outFilePath_, metaFilePath_);
 
-    // TODO: 文件名解析完成后立即通知宿主持久化，确保 UI/DB 中的文件名与磁盘一致。
+    // 唯一化得到的临时名主干即任务对外文件名：回写 configure_->fileName 并通知宿主，
+    // 使 UI/DB 显示名与磁盘上的 .edm 临时文件一致
+    if (auto uniqueBase = std::filesystem::path(outFilePath_).filename().string();
+        uniqueBase.size() > 4 && uniqueBase.ends_with(kTempFileExt)) {
+        uniqueBase.resize(uniqueBase.size() - 4);
+        if (uniqueBase != configure_->fileName) {
+            configure_->fileName = std::move(uniqueBase);
+            observer_->onFileNameChanged(configure_);
+        }
+    }
 
     if (meta.fileSize < 0) {
         EDM_LOG_WARN(taskId, "Unknown file size, falling back to single-thread download");
@@ -330,6 +419,12 @@ bool DownloadTask::loadProgress() {
         return false;
     }
 
+    // 归属不匹配：临时文件属于其他同名任务，不动
+    if (data->taskId != configure_->id) {
+        EDM_LOG_WARN(taskId, "Progress file invalid: taskId={}, expected={}", data->taskId, configure_->id);
+        return false;
+    }
+
     state_->ranges.clear();
     state_->ranges.reserve(data->rangeCount);
     for (auto const& range : data->ranges) {
@@ -352,6 +447,7 @@ void DownloadTask::saveProgress() const {
         auto writer = schema::EnvelopeWriter<schema::MetaPaylad>{kProgressMagic, kProgressVersion, metaFilePath_};
 
         writer->fileSize   = configure_->metaInfo->fileSize.value();
+        writer->taskId     = configure_->id;
         writer->rangeCount = state_->ranges.size();
 
         auto& ranges = writer->ranges;
@@ -495,6 +591,9 @@ void DownloadTask::workerLoop(size_t slot) {
             static_cast<int>(interrupted ? WorkerState::Stopped : WorkerState::Finished),
             std::memory_order_relaxed
         );
+
+        // 驻留等待期不持有连接：TCP 立即归还，resume 后传输前按需重建
+        worker.disconnect();
 
         {
             // 驻留登记须持 wakeMutex_：waitAllParked 的谓词检查与休眠在锁内原子完成
@@ -674,8 +773,8 @@ void DownloadTask::finalizeTask() {
 
     auto finalName  = configure_->fileName.empty() ? fileNameFromUrl(configure_->url) : configure_->fileName;
     auto targetPath = std::filesystem::path(configure_->saveDir) / sanitizeFileName(finalName);
-    // 重新下载语义：覆盖同名文件。下载全程写在 .edm 临时文件、校验通过后才走到这里，
-    // 所以覆盖不会损坏已有文件。否则沿用旧行为另存为 file(1).ext。
+    // 覆盖同名文件时全程写 .edm 临时文件、校验通过后才改名，原文件不会被写坏；
+    // 不覆盖时另存为 name(1).ext
     auto            finalPath = configure_->overwriteExisting ? targetPath : uniqueFinalPath(targetPath);
     std::error_code ec;
     std::filesystem::rename(outFilePath_, finalPath, ec);
@@ -692,6 +791,12 @@ void DownloadTask::finalizeTask() {
         setState(TaskState::Failed);
         saveProgress();
         return;
+    }
+
+    // 完成重命名后再次唯一化的最终名同样回写并通知，UI/DB 与落盘文件名保持一致
+    if (auto finalBase = finalPath.filename().string(); finalBase != configure_->fileName) {
+        configure_->fileName = std::move(finalBase);
+        observer_->onFileNameChanged(configure_);
     }
 
     std::filesystem::remove(metaFilePath_, ec);

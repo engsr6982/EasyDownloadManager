@@ -1,9 +1,9 @@
 /**
- * url-rewriter：下载前的 URL/文件名改写演示。
+ * url-rewriter：下载前的 URL 改写与元信息观测演示。
  *
  * 1. beforeFetchMeta（同步）：正则把 http 改写为 https；
  * 2. beforeFetchMeta（异步）：对 /redirect/ 链接先 HEAD 探测真实直链再改写；
- * 3. afterFetchMeta：文件名追加下载日期。
+ * 3. afterFetchMeta：只读观测元信息（该钩子随恢复/重试重复触发，改写文件名须幂等）。
  */
 import { events, logger, http, constants, Priority } from "edm";
 
@@ -33,11 +33,9 @@ export default class UrlRewriter {
                 })();
             }, Priority.High),
 
-            // ---- 文件名追加日期 ----
+            // ---- 元信息只读观测（不改写文件名；重名由引擎按 name(1).ext 序号处理） ----
             events.listen("afterFetchMeta", (ev) => {
                 if (!ev.fileName || ev.fileName === constants.unknownFileName) return;
-                const date = new Date().toISOString().slice(0, 10);
-                ev.fileName = `${date}_${ev.fileName}`;
                 logger.info("afterFetchMeta: fileSize={}, finalUrl={}, fileName={}", ev.fileSize, ev.finalUrl, ev.fileName);
             }),
         ];

@@ -48,8 +48,9 @@ struct TaskContext {
     TaskState state{TaskState::Pending};
 
     /// 完成后是否覆盖同名文件（"重新下载"语义）。
-    /// 为 false 时沿用旧行为：目标已存在则另存为 file(1).ext。
-    /// 下载始终先写 <name>.edm 临时文件，校验通过后才改名，覆盖不会损坏原文件。
+    /// 为 false 时目标已存在则另存为 name(1).ext（.tar.gz 视为单一扩展名）。
+    /// 下载先写 <name>(<n>)<ext>.edm 临时文件（.meta 记录归属 taskId），校验通过后
+    /// 改名为唯一化最终名，覆盖不会损坏原文件。
     bool overwriteExisting{false};
 
     explicit TaskContext(TaskId const id, std::string url, std::string saveDir)

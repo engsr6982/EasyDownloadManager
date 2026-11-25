@@ -324,10 +324,11 @@ void QmlTaskListModel::updateDetailFromRow(QmlTaskDetail* detail, int row) {
         m->resumable == Resumable::Yes
     );
     detail->setThreadCount(m->threadCount);
-    // 行状态轻量推送：右键菜单/抽屉按钮的门控依赖 statusStr，
-    // 该字段不等待抽屉可见期的 pullLive
+    // 行刷新与详情同源：速率/ETA/线程分片取自 liveState，无实时态时按数据库态兜底。
+    // statusStr 在此落定，供右键菜单与抽屉按钮门控，不依赖抽屉 pullLive
     auto const liveState = rows_[row].liveState ? rows_[row].liveState->state() : m->state;
     detail->setFallbackStatus(liveState);
+    detail->setLiveState(rows_[row].liveState.get(), liveState);
 }
 
 // ---------- Refresh tick ----------
