@@ -171,7 +171,6 @@ Item {
                 iconText: "\uF45E"
                 title: qsTr("代理设置")
                 description: qsTr("更改下载器使用的代理服务器")
-                expanded: true
 
                 FluSettingRow {
                     isSubRow: true
@@ -256,6 +255,102 @@ Item {
                         text: SettingsModel.proxyPassword
                         enabled: proxyState.checked && proxyProtocolType.currentIndex !== 2 && proxyProtocolType.currentIndex !== 3
                         onEditingFinished: SettingsModel.proxyPassword = text
+                    }
+                }
+            }
+
+            // WS 服务器
+            FluSettingExpander {
+                iconText: "\uE99A" // plug_connected
+                title: qsTr("WS 服务器")
+                description: qsTr("供浏览器扩展协调下载任务的本机 WebSocket 服务")
+
+                FluSettingRow {
+                    isSubRow: true
+                    title: qsTr("启用服务器")
+                    description: qsTr("关闭后立即停止监听")
+
+                    FluSwitch {
+                        id: wsState
+                        checked: SettingsModel.wsEnabled
+                        onClicked: SettingsModel.wsEnabled = checked
+                    }
+                }
+
+                FluSettingRow {
+                    isSubRow: true
+                    title: qsTr("允许局域网访问")
+                    description: lanState.checked ? qsTr("监听全部网卡, 局域网内主机可直接连接") : qsTr("仅监听回环地址, 局域网内其他主机不可达")
+
+                    FluSwitch {
+                        id: lanState
+                        checked: SettingsModel.wsAllowLan
+                        enabled: wsState.checked
+                        onClicked: SettingsModel.wsAllowLan = checked
+                    }
+                }
+
+                FluSettingRow {
+                    isSubRow: true
+                    title: qsTr("监听端口")
+                    description: qsTr("浏览器扩展连接的端口, 默认 26111")
+
+                    FluTextField {
+                        width: 100
+                        text: SettingsModel.wsPort.toString()
+                        enabled: wsState.checked
+                        validator: IntValidator {
+                            bottom: 1
+                            top: 65535
+                        }
+                        onEditingFinished: SettingsModel.wsPort = parseInt(text) || 26111
+                    }
+                }
+
+                FluSettingRow {
+                    isSubRow: true
+                    title: qsTr("访问令牌")
+                    description: qsTr("留空表示不校验")
+
+                    Row {
+                        spacing: Constants.itemSpacing
+
+                        FluTextField {
+                            id: wsTokenField
+                            width: 150
+                            text: SettingsModel.wsToken
+                            enabled: wsState.checked
+                            onEditingFinished: SettingsModel.wsToken = text
+                        }
+                        FluIconButton {
+                            text: "\uF32C" // copy
+                            enabled: wsState.checked
+                            onClicked: AppController.copyToClipboard(SettingsModel.wsToken)
+                        }
+                        FluIconButton {
+                            text: "\uF191" // arrow_sync
+                            enabled: wsState.checked
+                            onClicked: wsTokenField.text = SettingsModel.regenerateWsToken()
+                        }
+                    }
+                }
+
+                FluSettingRow {
+                    isSubRow: true
+                    title: qsTr("运行状态")
+                    description: WsServerModel.lastError !== "" ? WsServerModel.lastError : (WsServerModel.running ? qsTr("已连接 %1 个客户端").arg(WsServerModel.clientCount) : qsTr("未监听"))
+
+                    Row {
+                        spacing: Constants.itemSpacing
+
+                        FluText {
+                            text: WsServerModel.endpoint
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        FluIconButton {
+                            text: "\uF32C" // copy
+                            onClicked: AppController.copyToClipboard(WsServerModel.endpoint)
+                        }
                     }
                 }
             }

@@ -135,6 +135,42 @@ void    QmlSettings::setProxyPassword(QString const& pwd) {
     emit proxyPasswordChanged();
 }
 
+// ---- WebSocket server ----
+
+bool QmlSettings::wsEnabled() const { return EdmConfig::getInstance().getWsEnabled(); }
+void QmlSettings::setWsEnabled(bool enabled) {
+    if (EdmConfig::getInstance().getWsEnabled() == enabled) return;
+    EdmConfig::getInstance().setWsEnabled(enabled);
+    emit wsEnabledChanged();
+}
+
+int  QmlSettings::wsPort() const { return EdmConfig::getInstance().getWsPort(); }
+void QmlSettings::setWsPort(int port) {
+    if (EdmConfig::getInstance().getWsPort() == port) return;
+    EdmConfig::getInstance().setWsPort(port);
+    emit wsPortChanged();
+}
+
+bool QmlSettings::wsAllowLan() const { return EdmConfig::getInstance().getWsAllowLan(); }
+void QmlSettings::setWsAllowLan(bool allow) {
+    if (EdmConfig::getInstance().getWsAllowLan() == allow) return;
+    EdmConfig::getInstance().setWsAllowLan(allow);
+    emit wsAllowLanChanged();
+}
+
+QString QmlSettings::wsToken() { return EdmConfig::getInstance().getWsToken(); }
+void    QmlSettings::setWsToken(QString const& token) {
+    if (EdmConfig::getInstance().getWsToken() == token.trimmed()) return;
+    EdmConfig::getInstance().setWsToken(token);
+    emit wsTokenChanged();
+}
+
+QString QmlSettings::regenerateWsToken() {
+    auto const token = EdmConfig::getInstance().regenerateWsToken();
+    emit       wsTokenChanged();
+    return token;
+}
+
 QString QmlSettings::defaultUserAgent() const { return QString::fromStdString(kDefaultUserAgent); }
 
 void QmlSettings::reload() {
@@ -150,6 +186,10 @@ void QmlSettings::reload() {
     emit proxyPortChanged();
     emit proxyUserChanged();
     emit proxyPasswordChanged();
+    emit wsEnabledChanged();
+    emit wsPortChanged();
+    emit wsAllowLanChanged();
+    emit wsTokenChanged();
 }
 
 } // namespace edm

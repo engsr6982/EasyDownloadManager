@@ -87,6 +87,9 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
 - `QmlController`：应用级动作（最小化到托盘、打开文件/文件夹、剪贴板、无边框窗口外观
   `installWindowFrameless`）
 - `QmlScriptManager` / `ScriptLogModel`：脚本扩展的展示模型（见下）
+- `QmlWsServer`：WebSocket 服务器的只读运行状态（监听中、端口、客户端数、端点、错误串），
+  端点按绑定模式显示回环或局域网地址；配置项本身在 `QmlSettings`，变更后经 `applyConfig()`
+  同步监听状态
 
 核心装配：
 
@@ -138,6 +141,28 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
 - 持久化：可变钩子改写的 url/userAgent/fileName/headers/origin/referer/cookie 落库
   （customHeaders 为 JSON 对象列），断点续传与重试沿用；proxyUrl 为会话级不持久化
 
+### 浏览器集成（src/ws）
+
+本机 WebSocket 服务器，供浏览器扩展协调下载任务。默认启用，默认只绑定 127.0.0.1:26111；
+`ws/allow-lan` 开启后监听全部网卡供局域网访问。配置项为 `ws/enabled`、`ws/port`、
+`ws/allow-lan`、`ws/token`（令牌首次读取时随机生成并持久化）。
+
+- `WsServer`：传输层，QWebSocketServer 封装，只做监听、会话生命周期与文本帧收发，
+  不解析报文语义
+- `WsPacket.h`：报文契约。信封为 `ResponseEnvelope<ResultT>`、`ErrorEnvelope`、
+  `EventEnvelope<PayloadT>` 三个结构体，统一经 glaze 序列化；`IPacket` 为类型擦除接口，
+  `Packet` 实现 id 存取与错误信封，`WithPacketPayload<PayloadT>` 混入 payload 并以 glaze
+  反射反序列化 params、序列化结果；具名 packet 派生自 `WithPacketPayload` 并给出
+  `kMethod` 与 `Result`。事件为纯标签结构，经 `serializeEvent` 序列化。序列化失败记录
+  qWarning 并回错误信封，空文本帧不发送
+- `WsPackets.h`：全部 payload、packet 与事件定义，协议增删只改这一个文件
+- `WsBridge`：协议层，维护会话鉴权状态与 method 分发表，核心分发路径只依赖
+  `IPacket`，并订阅 AppService 信号广播事件
+
+报文形态为 `{"id","method","params"}` 请求、`{"id","ok","result"|"error"}` 响应与
+`{"event","data"}` 事件。鉴权为连接后的首条 `auth` 消息，未鉴权会话只能调用 auth，
+10 秒未鉴权即断开；令牌留空表示不校验。令牌轮换断开全部现有会话。
+
 ## 约定
 
 - C++23。C++ 改动经 clang-format（仓库 .clang-format，LLVM 风格）后提交；.clang-tidy 已配置
@@ -153,6 +178,7 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
   依赖不受限（如 Node.js path.posix、jspp、Qt）
 - 注释只做第三人称技术描述：需求由来、修复历史、行为对比一律不写；接到的要求不得转述为注释
 - 禁止说教、命令式语气、模糊指代与长篇论述；一句说清，能删则删
+- 不用黑话与行内惯用语（如"兜住""收口""打通"），能直白写明的直接写；特定技术名词除外
 - 文档按受众分离：docs/scripting.md 面向脚本作者，本文件面向 agent 与维护者，实现细节不进
   用户文档；README 面向使用者介绍功能，不穷举清单
 - markdown 散文优先，表格、列表与嵌套仅用于真正结构化的数据；参照大型基础设施项目的文档写法

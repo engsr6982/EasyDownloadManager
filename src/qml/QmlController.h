@@ -46,6 +46,9 @@ public:
     /// Return the current clipboard text (for URL auto-paste).
     Q_INVOKABLE QString clipboardText() const;
 
+    /// 写入系统剪贴板
+    Q_INVOKABLE void copyToClipboard(QString const& text);
+
     // Remove the file:// prefix from a URL.
     Q_INVOKABLE QString removeFileUrlPrefix(QString const& url);
 

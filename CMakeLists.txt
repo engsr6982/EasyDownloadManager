@@ -21,7 +21,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # --- 查找全局依赖 ---
-find_package(Qt6 REQUIRED COMPONENTS Widgets Quick QuickControls2 QuickLayouts QuickDialogs2)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Quick QuickControls2 QuickLayouts QuickDialogs2 Network WebSockets)
 find_package(magic_enum CONFIG REQUIRED)
 find_package(SQLiteCpp REQUIRED)
 find_package(CURL REQUIRED)
@@ -81,6 +81,14 @@ set(PROJECT_SOURCES
         src/qml/QmlScriptManager.h
         src/qml/ScriptLogModel.cc
         src/qml/ScriptLogModel.h
+        src/qml/QmlWsServer.cc
+        src/qml/QmlWsServer.h
+        src/ws/WsPacket.h
+        src/ws/WsPackets.h
+        src/ws/WsServer.cc
+        src/ws/WsServer.h
+        src/ws/WsBridge.cc
+        src/ws/WsBridge.h
         src/scripting/api/ScriptConsole.cc
         src/scripting/api/ScriptConsole.h
         src/scripting/api/ScriptEvents.h
@@ -198,6 +206,8 @@ target_link_libraries(EasyDownloadManager PRIVATE
         Qt6::Widgets
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::Network
+        Qt6::WebSockets
         src-downloader
         edm-common
         magic_enum::magic_enum

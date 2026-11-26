@@ -39,6 +39,12 @@ class QmlSettings : public QObject {
     Q_PROPERTY(QString proxyUser READ proxyUser WRITE setProxyUser NOTIFY proxyUserChanged)
     Q_PROPERTY(QString proxyPassword READ proxyPassword WRITE setProxyPassword NOTIFY proxyPasswordChanged)
 
+    // WebSocket server (browser integration)
+    Q_PROPERTY(bool wsEnabled READ wsEnabled WRITE setWsEnabled NOTIFY wsEnabledChanged)
+    Q_PROPERTY(int wsPort READ wsPort WRITE setWsPort NOTIFY wsPortChanged)
+    Q_PROPERTY(bool wsAllowLan READ wsAllowLan WRITE setWsAllowLan NOTIFY wsAllowLanChanged)
+    Q_PROPERTY(QString wsToken READ wsToken WRITE setWsToken NOTIFY wsTokenChanged)
+
     // constants
     Q_PROPERTY(QVector<QString> proxyTypes READ proxyTypes CONSTANT)
     Q_PROPERTY(QVector<int> threadCounts READ threadCounts CONSTANT)
@@ -87,6 +93,22 @@ public:
     QString proxyPassword() const;
     void    setProxyPassword(QString const& pwd);
 
+    // WebSocket server
+    bool wsEnabled() const;
+    void setWsEnabled(bool enabled);
+
+    int  wsPort() const;
+    void setWsPort(int port);
+
+    bool wsAllowLan() const;
+    void setWsAllowLan(bool allow);
+
+    QString wsToken();
+    void    setWsToken(QString const& token);
+
+    /// Generate and persist a new token; all existing connections are dropped
+    Q_INVOKABLE QString regenerateWsToken();
+
     Q_INVOKABLE QString defaultUserAgent() const;
 
     // Force a full reload from EdmConfig -> re-emit every NOTIFY.
@@ -106,6 +128,11 @@ signals:
     void proxyPortChanged();
     void proxyUserChanged();
     void proxyPasswordChanged();
+
+    void wsEnabledChanged();
+    void wsPortChanged();
+    void wsAllowLanChanged();
+    void wsTokenChanged();
 
 private:
     int       threadIndexFromCount(int count) const;

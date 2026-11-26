@@ -57,6 +57,8 @@ bool QmlController::openFolder(QString const& path) {
 
 QString QmlController::clipboardText() const { return QApplication::clipboard()->text(); }
 
+void QmlController::copyToClipboard(QString const& text) { QApplication::clipboard()->setText(text); }
+
 QString QmlController::removeFileUrlPrefix(QString const& url) {
     // Since QUrl can't be called directly in QML,
     //  here's a helper to convert file URLs in QML

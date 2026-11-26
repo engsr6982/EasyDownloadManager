@@ -1,5 +1,6 @@
 #include "EdmConfig.h"
 
+#include <QRandomGenerator>
 #include <qdir.h>
 #include <qstandardpaths.h>
 
@@ -86,8 +87,15 @@ constexpr auto kProxyUser          = "proxy/user";                     // string
 constexpr auto kProxyPassword      = "proxy/password";                 // string
 constexpr auto kDisabledScripts    = "scripting/disabledScripts";      // QStringList
 constexpr auto kHookTimeoutMs      = "scripting/hookTimeoutMs";        // int
+constexpr auto kWsEnabled          = "ws/enabled";                     // bool
+constexpr auto kWsPort             = "ws/port";                        // int
+constexpr auto kWsAllowLan         = "ws/allow-lan";                   // bool
+constexpr auto kWsToken            = "ws/token";                       // string
 
 constexpr auto kDefaultHookTimeoutMs = 10000;
+constexpr auto kDefaultWsEnabled     = true;
+constexpr auto kDefaultWsPort        = 26111;
+constexpr auto kDefaultWsAllowLan    = false;
 
 
 int EdmConfig::getThreadCount() const {
@@ -214,6 +222,52 @@ int EdmConfig::getScriptHookTimeoutMs() const { return settings_.value(kHookTime
 void EdmConfig::setScriptHookTimeoutMs(int ms) {
     settings_.setValue(kHookTimeoutMs, ms);
     settings_.sync();
+}
+
+// ---- WebSocket 服务器 ----
+
+bool EdmConfig::getWsEnabled() const { return settings_.value(kWsEnabled, kDefaultWsEnabled).toBool(); }
+
+void EdmConfig::setWsEnabled(bool enabled) {
+    settings_.setValue(kWsEnabled, enabled);
+    settings_.sync();
+}
+
+int EdmConfig::getWsPort() const { return settings_.value(kWsPort, kDefaultWsPort).toInt(); }
+
+void EdmConfig::setWsPort(int port) {
+    settings_.setValue(kWsPort, port);
+    settings_.sync();
+}
+
+bool EdmConfig::getWsAllowLan() const { return settings_.value(kWsAllowLan, kDefaultWsAllowLan).toBool(); }
+
+void EdmConfig::setWsAllowLan(bool allow) {
+    settings_.setValue(kWsAllowLan, allow);
+    settings_.sync();
+}
+
+QString EdmConfig::getWsToken() {
+    auto token = settings_.value(kWsToken).toString();
+    if (token.isEmpty()) token = regenerateWsToken();
+    return token;
+}
+
+void EdmConfig::setWsToken(QString const& token) {
+    settings_.setValue(kWsToken, token.trimmed());
+    settings_.sync();
+}
+
+QString EdmConfig::regenerateWsToken() {
+    auto*   rng = QRandomGenerator::system();
+    QString token;
+    token.reserve(32);
+    for (int i = 0; i < 4; ++i) {
+        token.append(QString::asprintf("%08x", rng->generate()));
+    }
+    settings_.setValue(kWsToken, token);
+    settings_.sync();
+    return token;
 }
 
 

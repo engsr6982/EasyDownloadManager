@@ -9,10 +9,12 @@
 #include "qml/QmlScriptManager.h"
 #include "qml/QmlSettings.h"
 #include "qml/QmlTaskListModel.h"
+#include "qml/QmlWsServer.h"
 #include "scripting/api/ScriptHostServices.h"
 #include "scripting/engine/ScriptingBootstrap.h"
 #include "scripting/qt/ScriptQtHost.h"
 #include "utils/TaskLogger.h"
+#include "ws/WsBridge.h"
 
 #include <QApplication>
 #include <QMenu>
@@ -38,6 +40,7 @@ struct EdmApplication::Impl {
     std::unique_ptr<AppService>                 appService_{nullptr};
     std::unique_ptr<script::qt::QtHostServices> scriptServices_{nullptr};
     std::unique_ptr<script::ScriptingBootstrap> scripting_{nullptr};
+    std::unique_ptr<ws::WsBridge>               wsBridge_{nullptr};
     std::unique_ptr<QQmlApplicationEngine>      qmlEngine_{nullptr};
     std::unique_ptr<QSystemTrayIcon>            trayIcon_{nullptr};
 
@@ -47,6 +50,7 @@ struct EdmApplication::Impl {
     QmlController*    controller_{nullptr};
     QmlScriptManager* scriptManager_{nullptr};
     CommandRegistry*  commandRegistry_{nullptr};
+    QmlWsServer*      wsServerModel_{nullptr};
 
     QQuickWindow* mainWindow_{nullptr};
 
@@ -64,13 +68,18 @@ struct EdmApplication::Impl {
         scripting_ = std::make_unique<script::ScriptingBootstrap>();
         appService_->setScripting(scripting_.get());
 
-        // 3. QML engine
+        // 3. WebSocket 服务器：浏览器集成的协调入口，按配置决定是否监听
+        wsBridge_ = std::make_unique<ws::WsBridge>();
+        wsBridge_->setService(appService_.get());
+        wsBridge_->applyConfig();
+
+        // 4. QML engine
         _initializeQml();
 
-        // 4. 脚本子系统初始化：扫描脚本目录并加载启用脚本
+        // 5. 脚本子系统初始化：扫描脚本目录并加载启用脚本
         _initializeScripting();
 
-        // 5. System tray icon
+        // 6. System tray icon
         _initSystemTrayIcon();
     }
 
@@ -133,6 +142,8 @@ struct EdmApplication::Impl {
         scriptManager_ = new QmlScriptManager();
         scriptManager_->setBootstrap(scripting_.get());
         commandRegistry_ = new CommandRegistry(nullptr);
+        wsServerModel_   = new QmlWsServer();
+        wsServerModel_->setBridge(wsBridge_.get());
 
         _registerBuiltinCommands();
 
@@ -141,12 +152,20 @@ struct EdmApplication::Impl {
         settingsModel_->setParent(qmlEngine_.get());
         controller_->setParent(qmlEngine_.get());
         scriptManager_->setParent(qmlEngine_.get());
+        wsServerModel_->setParent(qmlEngine_.get());
 
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "TaskListModel", taskListModel_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "SettingsModel", settingsModel_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "AppController", controller_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "ScriptManager", scriptManager_);
         qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "CommandRegistry", commandRegistry_);
+        qmlRegisterSingletonInstance("edm.qml.ui", 1, 0, "WsServerModel", wsServerModel_);
+
+        // 配置项变化即同步监听状态；applyConfig 幂等，reload 的批量通知可安全重入
+        QObject::connect(settingsModel_, &QmlSettings::wsEnabledChanged, wsServerModel_, &QmlWsServer::applyConfig);
+        QObject::connect(settingsModel_, &QmlSettings::wsPortChanged, wsServerModel_, &QmlWsServer::applyConfig);
+        QObject::connect(settingsModel_, &QmlSettings::wsAllowLanChanged, wsServerModel_, &QmlWsServer::applyConfig);
+        QObject::connect(settingsModel_, &QmlSettings::wsTokenChanged, wsServerModel_, &QmlWsServer::applyConfig);
 
         qml_register_types_edm_qml_ui();
 
@@ -399,6 +418,11 @@ struct EdmApplication::Impl {
         controller_      = nullptr;
         scriptManager_   = nullptr;
         commandRegistry_ = nullptr;
+        wsServerModel_   = nullptr;
+
+        // WebSocket 服务器的 handler 直接调用 AppService，须先于服务停止
+        wsBridge_->shutdown();
+        wsBridge_.reset();
 
         // 先停调度器并释放数据库（任务进入 Paused 并持久化），再销毁服务。
         appService_->shutdown();

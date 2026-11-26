@@ -92,6 +92,20 @@ public:
     int  getScriptHookTimeoutMs() const;
     void setScriptHookTimeoutMs(int ms);
 
+    // WebSocket 服务器（浏览器集成）
+    bool getWsEnabled() const;
+    void setWsEnabled(bool enabled);
+    int  getWsPort() const;
+    void setWsPort(int port);
+    /// 允许局域网连接：关闭时只监听回环地址
+    bool getWsAllowLan() const;
+    void setWsAllowLan(bool allow);
+    /// 访问令牌：首次读取时生成随机值并持久化，清空后重新生成
+    QString getWsToken();
+    void    setWsToken(QString const& token);
+    /// 生成新令牌并持久化，返回新值
+    QString regenerateWsToken();
+
 public:
     static inline constexpr auto kDefaultAutoStart    = false;
     static inline constexpr auto kDefaultShowComplete = true;
