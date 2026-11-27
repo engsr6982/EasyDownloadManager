@@ -141,10 +141,12 @@ qt_add_qml_module(EasyDownloadManager
         src-ui/Src/views/SettingsView.qml
         src-ui/Src/views/ExtensionView.qml
         src-ui/Src/components/NavButton.qml
+        src-ui/Src/components/ScrollToTopButton.qml
         src-ui/Src/components/TaskCard.qml
         src-ui/Src/components/ExtensionCard.qml
         src-ui/Src/dialog/NewTaskDialog.qml
         src-ui/Src/dialog/DeleteTaskDialog.qml
+        src-ui/Src/dialog/ClearTasksDialog.qml
         src-ui/Src/dialog/UnInstallExtensionDialog.qml
         src-ui/Src/dialog/ConsoleWindow.qml
         src-ui/Src/dialog/CommandPalette.qml

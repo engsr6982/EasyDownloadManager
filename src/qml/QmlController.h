@@ -68,6 +68,8 @@ signals:
 
     /// 命令面板触发的"新建任务"，由 App.qml 打开对话框
     void newTaskRequested();
+    /// 命令面板触发的"清理所有任务"，由 App.qml 打开确认对话框
+    void clearAllTasksRequested();
     /// 打开脚本虚拟控制台的请求，由 App.qml 转交控制台窗口
     void consoleOpenRequested(QString const& name, QString const& version);
 

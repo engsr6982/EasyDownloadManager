@@ -92,6 +92,9 @@ public:
     /// 成功后对应行由 AppService::taskRemoved 信号移除。
     Q_INVOKABLE bool deleteTask(int taskId, bool deleteFiles);
 
+    /// 清理全部任务；deleteFiles 为 true 时一并删除已下载文件，任务日志始终删除。
+    Q_INVOKABLE bool deleteAllTasks(bool deleteFiles);
+
     /// Returns a live QmlTaskDetail for the drawer. May return nullptr if the
     /// task isn't tracked. The QObject is owned by this model.
     Q_INVOKABLE QmlTaskDetail* getTaskDetail(int taskId);

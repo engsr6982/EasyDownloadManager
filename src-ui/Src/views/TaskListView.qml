@@ -112,7 +112,7 @@ Item {
             Layout.preferredHeight: Constants.viewTitlebarHeight
 
             Text {
-                text: qsTr("下载任务")
+                text: qsTr("任务列表")
                 font.family: Constants.fontFamily
                 font.pixelSize: Constants.fontSizeTitle
                 font.bold: true
@@ -124,7 +124,7 @@ Item {
             }
 
             // TODO: 基于 Dropdown 的 tag 过滤器
-            // 下载任务<-----------> [过滤器] [+新建任务]
+            // 任务列表<-----------> [过滤器] [+新建任务]
             //                      | 准备中/下载中/暂停/取消/失败/完成
             //                      | 视频/音频/文档/程序/压缩文件/其它
 
@@ -137,54 +137,72 @@ Item {
         }
 
         // 任务列表
-        ListView {
-            id: taskListView
+        Item {
             Layout.fillHeight: true
             Layout.fillWidth: true
-            spacing: Constants.itemSpacing
-            clip: true
-            reuseItems: true
 
-            model: TaskListModel
+            ListView {
+                id: taskListView
+                anchors.fill: parent
+                spacing: Constants.itemSpacing
+                clip: true
+                reuseItems: true
 
-            delegate: TaskCard {
-                index: model.index
-                taskId: model.taskId
-                fileName: model.fileName
-                fileSizeStr: model.fileSizeStr
-                progressValue: model.progressValue
-                speedStr: model.speedStr
-                statusStr: model.statusStr
-                urlStr: model.urlStr
-                saveDir: model.saveDir
-                referrer: model.referrer
-                timestamp: model.timestamp
+                model: TaskListModel
 
-                onPauseClicked: function (id) {
-                    var status = model.statusStr;
-                    // Running/Preparing 才是在跑（可暂停）；Pending/Paused/Failed 都是"没在跑"（可继续）
+                delegate: TaskCard {
+                    index: model.index
+                    taskId: model.taskId
+                    fileName: model.fileName
+                    fileSizeStr: model.fileSizeStr
+                    progressValue: model.progressValue
+                    speedStr: model.speedStr
+                    statusStr: model.statusStr
+                    urlStr: model.urlStr
+                    saveDir: model.saveDir
+                    referrer: model.referrer
+                    timestamp: model.timestamp
 
-                    if (status === "Running" || status === "Preparing") {
-                        TaskListModel.pauseTask(id);
-                    } else if (status === "Pending" || status === "Paused" || status === "Failed") {
-                        TaskListModel.resumeTask(id);
+                    onPauseClicked: function (id) {
+                        var status = model.statusStr;
+                        // Running/Preparing 才是在跑（可暂停）；Pending/Paused/Failed 都是"没在跑"（可继续）
+
+                        if (status === "Running" || status === "Preparing") {
+                            TaskListModel.pauseTask(id);
+                        } else if (status === "Pending" || status === "Paused" || status === "Failed") {
+                            TaskListModel.resumeTask(id);
+                        }
+                    }
+
+                    onDeleteClicked: function (id) {
+                        root.showDeleteTaskDialog(id);
+                    }
+
+                    onRightClicked: function (taskId, targetItem, mouseX, mouseY) {
+                        taskContextMenu.targetTaskId = taskId;
+                        taskContextMenu.targetDetail = TaskListModel.getTaskDetail(taskId);
+                        taskContextMenu.popup(targetItem, mouseX, mouseY);
+                    }
+
+                    onCardClicked: {
+                        root.taskSelected(model.taskId);
                     }
                 }
+            }
 
-                onDeleteClicked: function (id) {
-                    root.showDeleteTaskDialog(id);
-                }
-
-                onRightClicked: function (taskId, targetItem, mouseX, mouseY) {
-                    taskContextMenu.targetTaskId = taskId;
-                    taskContextMenu.targetDetail = TaskListModel.getTaskDetail(taskId);
-                    taskContextMenu.popup(targetItem, mouseX, mouseY);
-                }
-
-                onCardClicked: {
-                    root.taskSelected(model.taskId);
-                }
+            Text {
+                anchors.centerIn: parent
+                visible: taskListView.count === 0
+                text: qsTr("暂无任务 :)")
+                horizontalAlignment: Text.AlignHCenter
+                font.family: Constants.fontFamily
+                font.pixelSize: Constants.fontSizeBody
+                color: Constants.textDisabled
             }
         }
+    }
+
+    ScrollToTopButton {
+        flickable: taskListView
     }
 }

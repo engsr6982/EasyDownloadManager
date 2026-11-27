@@ -419,6 +419,16 @@ bool QmlTaskListModel::deleteTask(int taskId, bool deleteFiles) {
     return true;
 }
 
+bool QmlTaskListModel::deleteAllTasks(bool deleteFiles) {
+    if (!service_) return false;
+    auto r = service_->deleteAllTasks(deleteFiles);
+    if (!r) {
+        emit taskActionError(QStringLiteral("deleteAll"), -1, QString::fromStdString(r.error().message()));
+        return false;
+    }
+    return true;
+}
+
 QmlTaskDetail* QmlTaskListModel::getTaskDetail(int taskId) {
     int row = findRow(taskId);
     if (row < 0) return nullptr;
@@ -452,7 +462,13 @@ void QmlTaskListModel::onServiceTaskCreated(std::shared_ptr<TaskModel> const& mo
 
 void QmlTaskListModel::onServiceTaskRemoved(int taskId) {
     int row = findRow(taskId);
-    if (row >= 0) removeRow(row);
+    if (row >= 0) {
+        removeRow(row);
+    } else if (totalCount_ > 0) {
+        // 未加载的分页行也要从总数中扣除，否则清理全部任务后仍会继续请求空页。
+        --totalCount_;
+        emit countChanged();
+    }
 }
 
 void QmlTaskListModel::onServiceTaskStateChanged(int taskId) {

@@ -254,6 +254,18 @@ struct EdmApplication::Impl {
             QStringLiteral("在文件管理器中打开默认下载保存目录"),
             [ctrl] { ctrl->openFolder(EdmConfig::getDefaultSaveDir()); }
         );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("打开日志文件夹"),
+            QStringLiteral("在文件管理器中打开任务日志目录"),
+            [ctrl] { ctrl->openFolder(QString::fromStdString(TaskLoggerManager::logDir())); }
+        );
+        commands->addCommand(
+            QStringLiteral("应用"),
+            QStringLiteral("清理所有任务"),
+            QStringLiteral("清空全部下载任务记录"),
+            [ctrl] { emit ctrl->clearAllTasksRequested(); }
+        );
     }
 
     /// 组装脚本宿主服务（Qt 适配 + 托盘通知/宿主日志/任务数据源），并初始化脚本子系统

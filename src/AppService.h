@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace edm {
 
@@ -102,6 +103,9 @@ public:
     /// 取消（best-effort），可选删除磁盘文件，删除数据库记录，发出 taskRemoved。
     Expected<> deleteTask(int taskId, bool deleteFiles);
 
+    /// 清理全部任务；deleteFiles 为 true 时一并删除已下载文件，任务日志始终删除。
+    Expected<> deleteAllTasks(bool deleteFiles);
+
     /// 重新下载：摘除旧任务、清除进度文件后从零再下一次（用于已完成/失败任务）。
     /// 下载期间旧文件保持不动，校验通过后才覆盖同名文件。
     Expected<> redownloadTask(int taskId);
@@ -124,6 +128,9 @@ signals:
     /// 任务进入终态（完成/失败/取消），供托盘状态通知等消费。
     /// state 用 int 传，避免 TaskState 未注册元类型导致跨线程队列连接失败。
     void taskFinished(int taskId, int state, QString const& fileName, QString const& errorMsg);
+
+private:
+    Expected<> deleteTasks(std::vector<int> const& taskIds, bool deleteFiles);
 };
 
 } // namespace edm

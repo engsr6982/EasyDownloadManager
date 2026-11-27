@@ -25,7 +25,6 @@ FluPopup {
         anchors.fill: parent
         spacing: Constants.itemSpacing
 
-        // 标题栏
         RowLayout {
             spacing: Constants.itemSpacing
             FluIndicator {
@@ -35,19 +34,17 @@ FluPopup {
             }
             FluText {
                 isTitle: true
-                text: qsTr("卸载插件")
+                text: qsTr("删除扩展")
                 font.bold: true
             }
         }
 
-        // 提示文本：占满宽度换行，不随字数横向撑开挤走底部按钮
         FluText {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: qsTr("将先禁用「%1」并移除其命令与事件，随后物理删除插件目录，此操作不可恢复。").arg(root.pluginName)
+            text: qsTr("确认删除扩展 %1？此操作不可逆。").arg(root.pluginName)
         }
 
-        // 插件目录路径：无空格串按任意位置折行
         FluText {
             Layout.fillWidth: true
             visible: root.dirPath.length > 0
@@ -61,7 +58,6 @@ FluPopup {
             Layout.fillHeight: true
         }
 
-        // 底部操作栏：Item 定高承载宽度，Row 右锚，与正文分处不同纵向段，正文再长也顶不出去
         Item {
             Layout.fillWidth: true
             implicitHeight: 32
@@ -73,7 +69,7 @@ FluPopup {
                 spacing: Constants.itemSpacing
 
                 FluButton {
-                    text: qsTr("卸载")
+                    text: qsTr("删除")
                     isDanger: true
                     onClicked: {
                         root.confirmed(root.pluginName);

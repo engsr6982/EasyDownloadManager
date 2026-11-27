@@ -1,18 +1,18 @@
 #include "utils/TaskLogger.h"
 
-#include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 #include <filesystem>
 #include <vector>
 
 namespace edm {
 
-std::mutex                                                    TaskLoggerManager::mutex_;
-std::unordered_map<TaskId, std::shared_ptr<spdlog::logger>>   TaskLoggerManager::loggers_;
-std::string                                                   TaskLoggerManager::logDir_{"logs"};
-bool                                                          TaskLoggerManager::initialized_{false};
+std::mutex                                                  TaskLoggerManager::mutex_;
+std::unordered_map<TaskId, std::shared_ptr<spdlog::logger>> TaskLoggerManager::loggers_;
+std::string                                                 TaskLoggerManager::logDir_{"logs"};
+bool                                                        TaskLoggerManager::initialized_{false};
 
 void TaskLoggerManager::init(std::string logDir) {
     std::lock_guard lock(mutex_);
@@ -63,7 +63,7 @@ std::shared_ptr<spdlog::logger> TaskLoggerManager::getOrCreate(TaskId taskId) {
 
 void TaskLoggerManager::remove(TaskId taskId) {
     std::lock_guard lock(mutex_);
-    auto it = loggers_.find(taskId);
+    auto            it = loggers_.find(taskId);
     if (it != loggers_.end()) {
         it->second->flush();
         spdlog::drop(it->second->name());
@@ -71,9 +71,32 @@ void TaskLoggerManager::remove(TaskId taskId) {
     }
 }
 
+void TaskLoggerManager::removeAndDeleteLog(TaskId taskId) {
+    std::filesystem::path path;
+    {
+        std::lock_guard lock(mutex_);
+        auto            it = loggers_.find(taskId);
+        if (it != loggers_.end()) {
+            it->second->flush();
+            spdlog::drop(it->second->name());
+            loggers_.erase(it);
+        }
+        path = std::filesystem::path(logDir_) / (std::to_string(taskId) + ".log");
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    if (ec) spdlog::warn("Failed to remove task log {}: {}", taskId, ec.message());
+}
+
+std::string TaskLoggerManager::logDir() {
+    std::lock_guard lock(mutex_);
+    return logDir_;
+}
+
 void TaskLoggerManager::setLevel(int level) {
     std::lock_guard lock(mutex_);
-    auto lvl = static_cast<spdlog::level::level_enum>(level);
+    auto            lvl = static_cast<spdlog::level::level_enum>(level);
     spdlog::set_level(lvl);
     for (auto& [id, logger] : loggers_) {
         logger->set_level(lvl);

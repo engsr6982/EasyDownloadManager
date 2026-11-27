@@ -158,6 +158,10 @@ Item {
                     color: Constants.textDisabled
                 }
             }
+
+            ScrollToTopButton {
+                flickable: cardList
+            }
         }
     }
 

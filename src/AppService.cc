@@ -844,56 +844,80 @@ Expected<> AppService::cancelTask(int taskId) {
     return {};
 }
 
-Expected<> AppService::deleteTask(int taskId, bool deleteFiles) {
+Expected<> AppService::deleteTask(int taskId, bool deleteFiles) { return deleteTasks({taskId}, deleteFiles); }
+
+Expected<> AppService::deleteAllTasks(bool deleteFiles) {
     if (!impl->database_) return makeStringError("Database is not initialized");
 
-    auto* implPtr = impl.get();
-    impl->postControl([implPtr, taskId, deleteFiles] {
-        // 先摘除引擎中的任务（best-effort 取消并 join worker），再动磁盘与数据库
-        if (implPtr->dispatcher_) implPtr->dispatcher_->removeTask(taskId);
-
-        if (deleteFiles) {
-            try {
-                auto model = implPtr->database_->getTaskById(taskId);
-                if (model) {
-                    // 最终文件按 fileName 定位；临时文件族由引擎侧按命名规则清理
-                    QFile::remove(
-                        QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName)
-                    );
-                    downloader::removeTaskTempFiles(model->saveDir, model->fileName, taskId);
-                }
-            } catch (std::exception const& e) {
-                implPtr->reportError(taskId, QStringLiteral("删除文件失败: "), QString::fromStdString(e.what()));
-                return;
-            }
-        }
-
-        bool removed{false};
-        try {
-            removed = implPtr->database_->deleteTask(taskId);
-        } catch (std::exception const& e) {
-            implPtr->reportError(taskId, QStringLiteral("删除任务失败: "), QString::fromStdString(e.what()));
-            return;
-        }
-        if (!removed) {
-            implPtr
-                ->reportError(taskId, QStringLiteral("删除任务失败: "), QStringLiteral("Task not found in database"));
-            return;
-        }
-
-        implPtr->runOnGui([implPtr, taskId] {
-            if (implPtr->stopping_.load(std::memory_order_acquire)) return;
-            // 脚本通知：taskRemoved
-            if (implPtr->scripting_) {
-                auto* bus = implPtr->scripting_->eventBus();
-                if (bus && bus->hasListeners(HookId::TaskRemoved)) {
-                    auto ev    = std::make_shared<TaskNotifyEvent>();
-                    ev->taskId = taskId;
-                    bus->fireNotify(HookId::TaskRemoved, ev);
-                }
-            }
-            emit implPtr->owner->taskRemoved(taskId);
+    std::vector<int> taskIds;
+    try {
+        impl->database_->forEachTask([&taskIds](std::shared_ptr<TaskModel> const& model) {
+            taskIds.push_back(model->id);
+            return true;
         });
+    } catch (std::exception const& e) {
+        return makeStringError("Failed to load tasks: " + std::string(e.what()));
+    }
+    return deleteTasks(taskIds, deleteFiles);
+}
+
+Expected<> AppService::deleteTasks(std::vector<int> const& taskIds, bool deleteFiles) {
+    if (!impl->database_) return makeStringError("Database is not initialized");
+    if (taskIds.empty()) return {};
+
+    auto* implPtr = impl.get();
+    impl->postControl([implPtr, taskIds, deleteFiles] {
+        for (int taskId : taskIds) {
+            // 先摘除引擎中的任务（best-effort 取消并 join worker），再动磁盘与数据库
+            if (implPtr->dispatcher_) implPtr->dispatcher_->removeTask(taskId);
+
+            if (deleteFiles) {
+                try {
+                    auto model = implPtr->database_->getTaskById(taskId);
+                    if (model) {
+                        // 最终文件按 fileName 定位；临时文件族由引擎侧按命名规则清理
+                        QFile::remove(
+                            QString::fromStdString(model->saveDir) + u'/' + QString::fromStdString(model->fileName)
+                        );
+                        downloader::removeTaskTempFiles(model->saveDir, model->fileName, taskId);
+                    }
+                } catch (std::exception const& e) {
+                    implPtr->reportError(taskId, QStringLiteral("删除文件失败: "), QString::fromStdString(e.what()));
+                    continue;
+                }
+            }
+
+            bool removed{false};
+            try {
+                removed = implPtr->database_->deleteTask(taskId);
+            } catch (std::exception const& e) {
+                implPtr->reportError(taskId, QStringLiteral("删除任务失败: "), QString::fromStdString(e.what()));
+                continue;
+            }
+            if (!removed) {
+                implPtr->reportError(
+                    taskId,
+                    QStringLiteral("删除任务失败: "),
+                    QStringLiteral("Task not found in database")
+                );
+                continue;
+            }
+
+            TaskLoggerManager::removeAndDeleteLog(taskId);
+            implPtr->runOnGui([implPtr, taskId] {
+                if (implPtr->stopping_.load(std::memory_order_acquire)) return;
+                // 脚本通知：taskRemoved
+                if (implPtr->scripting_) {
+                    auto* bus = implPtr->scripting_->eventBus();
+                    if (bus && bus->hasListeners(HookId::TaskRemoved)) {
+                        auto ev    = std::make_shared<TaskNotifyEvent>();
+                        ev->taskId = taskId;
+                        bus->fireNotify(HookId::TaskRemoved, ev);
+                    }
+                }
+                emit implPtr->owner->taskRemoved(taskId);
+            });
+        }
     });
     return {};
 }

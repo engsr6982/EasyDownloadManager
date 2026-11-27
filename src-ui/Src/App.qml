@@ -156,9 +156,9 @@ Window {
                     anchors.right: parent.right
 
                     NavButton {
-                        text: qsTr("下载任务")
+                        text: qsTr("任务列表")
                         iconText: "\uf151"
-                        checked: true // 默认选中下载任务
+                        checked: true // 默认选中任务列表
                         targetGroup: navGroup
                         viewSource: Qt.resolvedUrl("./views/TaskListView.qml")
                         onClicked: viewLoader.source = viewSource
@@ -251,6 +251,9 @@ Window {
         function onNewTaskRequested() {
             globalNewTaskDialog.open();
         }
+        function onClearAllTasksRequested() {
+            globalClearTasksDialog.open();
+        }
         function onConsoleOpenRequested(name, version) {
             consoleWindow.openFor(name, version);
         }
@@ -323,6 +326,10 @@ Window {
         id: globalDeleteTaskDialog
         parent: contentContainer
     }
+    ClearTasksDialog {
+        id: globalClearTasksDialog
+        parent: contentContainer
+    }
     UnInstallExtensionDialog {
         id: globalUninstallDialog
         parent: contentContainer
@@ -352,6 +359,12 @@ Window {
         target: globalDeleteTaskDialog
         function onConfirmed(taskId, deleteFiles) {
             TaskListModel.deleteTask(taskId, deleteFiles);
+        }
+    }
+    Connections {
+        target: globalClearTasksDialog
+        function onConfirmed(deleteFiles) {
+            TaskListModel.deleteAllTasks(deleteFiles);
         }
     }
     Connections {
