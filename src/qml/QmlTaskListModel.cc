@@ -324,8 +324,8 @@ void QmlTaskListModel::updateDetailFromRow(QmlTaskDetail* detail, int row) {
         m->resumable == Resumable::Yes
     );
     detail->setThreadCount(m->threadCount);
-    // 行刷新与详情同源：速率/ETA/线程分片取自 liveState，无实时态时按数据库态兜底。
-    // statusStr 在此落定，供右键菜单与抽屉按钮门控，不依赖抽屉 pullLive
+    // 行刷新与详情同源：速率/ETA/线程分片取自 liveState，无实时态时使用数据库状态。
+    // statusStr 在此落定，供右键菜单与抽屉按钮的启用状态使用，不依赖抽屉 pullLive
     auto const liveState = rows_[row].liveState ? rows_[row].liveState->state() : m->state;
     detail->setFallbackStatus(liveState);
     detail->setLiveState(rows_[row].liveState.get(), liveState);

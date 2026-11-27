@@ -161,6 +161,31 @@ interface PingResult {
 任务创建后广播 `taskCreated`，元信息探测与下载在后台进行。URL 为空、脚本钩子取消或
 落库失败时回错误信封。
 
+浏览器扩展移交任务时，除 `url` 外还可携带下列可选接力字段，引擎据此还原请求上下文并
+持久化，供断点续传与链接失效后回源刷新使用。缺省全部字段即为纯 URL 建单。任务一律按 GET
+回源，非 GET 的浏览器请求不移交。
+
+```json
+{
+  "id": 3,
+  "method": "createTask",
+  "params": {
+    "url": "https://cdn.example.com/v.mp4",
+    "referer": "https://example.com/watch",
+    "origin": "https://example.com",
+    "cookie": "session=abc; token=xyz",
+    "headers": { "x-trace": "1", "Content-Type": "application/json" },
+    "fileName": "video.mp4",
+    "mimeType": "video/mp4",
+    "size": 10485760,
+    "pageUrl": "https://example.com/watch",
+    "pageTitle": "示例视频"
+  }
+}
+```
+
+`headers` 为对象，键值原样作为请求头发送。`size` 为期望总字节数（0 或负数视为未知）。
+
 ```ts
 interface CreateTaskParams {
   /** 下载地址，必填 */
@@ -169,6 +194,24 @@ interface CreateTaskParams {
   saveDir?: string;
   /** 是否走代理，缺省沿用设置中的代理开关 */
   useProxy?: boolean;
+  /** 来源页 Referer（去 #hash） */
+  referer?: string;
+  /** 来源页 Origin */
+  origin?: string;
+  /** 移交时现查的下载域 Cookie（`name=value; ...`） */
+  cookie?: string;
+  /** 自定义请求头（含 Content-Type），键值原样发送 */
+  headers?: Record<string, string>;
+  /** 文件名（含推断扩展名），缺省由 URL 与 Content-Disposition 解析 */
+  fileName?: string;
+  /** MIME 类型，缺省由响应头解析 */
+  mimeType?: string;
+  /** 期望总字节数，0 或负数视为未知 */
+  size?: number;
+  /** 来源页面地址 */
+  pageUrl?: string;
+  /** 来源页面标题 */
+  pageTitle?: string;
 }
 
 interface CreateTaskResult {

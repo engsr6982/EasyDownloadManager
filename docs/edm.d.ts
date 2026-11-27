@@ -256,7 +256,7 @@ declare module "edm" {
         isFile(path: string): boolean;
     };
 
-    /** POSIX 路径工具（对齐 Node.js path.posix；'' 视作分隔符并归一化为 '/'） */
+    /** POSIX 路径工具（对应 Node.js path.posix；'' 视作分隔符并归一化为 '/'） */
     export const path: {
         /** 拼接非空段并归一化（全空返回 "."） */
         join(...parts: string[]): string;

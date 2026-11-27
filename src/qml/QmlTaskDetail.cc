@@ -278,7 +278,7 @@ void QmlTaskDetail::setFallbackStatus(TaskState state) {
 
 void QmlTaskDetail::setLiveState(downloader::DownloadState const* state, TaskState fallbackState) {
     if (!state) {
-        // 无实时状态（重启后未派发/已终态）：用数据库里持久化的状态兜底，
+        // 无实时状态（重启后未派发/已终态）：使用数据库里持久化的状态，
         // 否则 statusStr 为空，右键菜单会按"N/A"把操作项全部禁用。
         bool       changed = false;
         auto const kNA     = QStringLiteral("N/A");

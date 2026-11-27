@@ -46,7 +46,7 @@ T.Popup {
             // - 2 是为了往上提 2 个像素，防止鼠标直接压在菜单项上发生误触
             targetY = globalPos.y - root.implicitHeight - 2;
 
-            // 兜底：如果菜单太长，往上翻之后把大顶给顶穿了，强行卡在顶部边界内
+            // 菜单过长时向上移动，使其保持在屏幕边界内
             if (targetY < margin) {
                 targetY = margin;
             }

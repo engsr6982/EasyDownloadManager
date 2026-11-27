@@ -4,6 +4,7 @@
 #include "scripting/api/ScriptHostServices.h"
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,6 +53,16 @@ struct CreateTaskPayload {
     std::string                url;
     std::optional<std::string> saveDir;
     std::optional<bool>        useProxy;
+    // 浏览器集成的可选接力字段；缺省时按纯 URL 建任务。
+    std::optional<std::string>                        referer;
+    std::optional<std::string>                        origin;
+    std::optional<std::string>                        cookie;
+    std::optional<std::string>                        fileName;
+    std::optional<std::string>                        mimeType;
+    std::optional<std::string>                        pageUrl;
+    std::optional<std::string>                        pageTitle;
+    std::optional<std::int64_t>                       size;
+    std::optional<std::map<std::string, std::string>> headers;
 };
 
 struct TaskIdPayload {

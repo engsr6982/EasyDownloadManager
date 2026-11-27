@@ -518,7 +518,7 @@ struct AppService::Impl : public ITaskObserver {
     }
 
     /// 将引擎最新上下文同步回数据库（并发安全：DownloadDatabase 自带锁；
-    /// 任务可能已被删除则跳过）。DB 异常就地兜底，不抛出。
+    /// 任务可能已被删除则跳过）。DB 异常就地处理，不抛出。
     void persistContext(TaskContext const& ctx, QString const& errorMsg = {}) {
         if (!database_) return;
         try {
@@ -645,7 +645,12 @@ void AppService::shutdown() {
     impl->database_.reset();
 }
 
-Expected<std::shared_ptr<TaskModel>> AppService::createTask(QString const& url, QString const& saveDir, bool useProxy) {
+Expected<std::shared_ptr<TaskModel>> AppService::createTask(
+    QString const&                    url,
+    QString const&                    saveDir,
+    bool                              useProxy,
+    std::optional<BrowserMeta> const& meta
+) {
     auto stdUrl     = url.toStdString();
     auto stdSaveDir = saveDir.toStdString();
     if (stdUrl.empty()) return makeStringError("URL is empty");
@@ -665,6 +670,18 @@ Expected<std::shared_ptr<TaskModel>> AppService::createTask(QString const& url, 
     // 从 URL 路径推导占位文件名（在引擎解析真实文件名之前）
     model->fileName = utils::resolveFileName(stdUrl);
 
+    // 浏览器集成上下文：自定义头、MIME、页面信息、期望大小
+    if (meta) {
+        if (!meta->fileName.empty()) model->fileName = meta->fileName;
+        if (!meta->mimeType.empty()) model->mimeType = meta->mimeType;
+        model->pageUrl   = meta->pageUrl;
+        model->pageTitle = meta->pageTitle;
+        if (meta->size > 0) model->fileSize = meta->size;
+        if (!meta->headers.empty()) {
+            if (auto buffer = glz::write_json(meta->headers)) model->customHeaders = std::move(*buffer);
+        }
+    }
+
     // ---- 脚本钩子: beforeCreateTask（主线程同步；可改写全部任务参数或取消）----
     if (impl->fireBeforeCreateTask(*model)) {
         return makeStringError("任务已被脚本取消");
@@ -675,6 +692,20 @@ Expected<std::shared_ptr<TaskModel>> AppService::createTask(QString const& url, 
         impl->database_->insertTask(model);
     } catch (std::exception const& e) {
         return makeStringError("Failed to persist task: " + std::string(e.what()));
+    }
+
+    // origin/referer/cookie 落 headers 表（makeContext 在建上下文时读取生效）
+    if (meta && (!meta->referer.empty() || !meta->origin.empty() || !meta->cookie.empty())) {
+        try {
+            auto header     = std::make_shared<TaskHeaderModel>();
+            header->id      = model->id;
+            header->referer = meta->referer;
+            header->origin  = meta->origin;
+            header->cookie  = meta->cookie;
+            impl->database_->insertTaskHeader(header);
+        } catch (std::exception const& e) {
+            qWarning() << "AppService: persist browser headers failed:" << e.what();
+        }
     }
 
     // 转换为引擎配置

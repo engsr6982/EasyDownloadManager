@@ -48,7 +48,7 @@ public:
         RangeSpeedStrRole,
     };
 
-    /// 线程槽位上限，必须与 DownloadState::kMaxWorkers 一致（.cc 中有 static_assert 兜底）
+    /// 线程槽位上限，必须与 DownloadState::kMaxWorkers 一致（.cc 中有 static_assert 校验）
     static constexpr int kMaxWorkerSlots = 32;
 
     explicit QmlRangeModel(QObject* parent = nullptr);
@@ -163,7 +163,7 @@ public:
         bool           resumable
     );
 
-    /// 数据库/引擎行状态的轻量回退：仅同步 statusStr（右键菜单门控依赖），
+    /// 数据库/引擎行状态的轻量回退：仅同步 statusStr（右键菜单启用状态依赖），
     /// 不触碰 rangesModel（线程数据走 pullLive 拉取）。
     void setFallbackStatus(TaskState state);
 

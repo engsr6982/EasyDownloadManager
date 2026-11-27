@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>EasyDownloadManager</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f0f5f8;
+        --card: #ffffff;
+        --border: #ebebeb;
+        --divider: #e4e9eb;
+        --text: #323130;
+        --text-2: #5f5f5f;
+        --accent: #005a9e;
+        --accent-hover: #1a6ba8;
+        --accent-pressed: #337bb1;
+        --control: #fefefe;
+        --control-hover: #f0f0f0;
+        --control-pressed: #fcfcfc;
+        --switch-border: #8a8886;
+        --switch-knob: #5d5a58;
+        --ok: #107c10;
+        --bad: #c42b1c;
+        --radius-card: 8px;
+        --radius-control: 4px;
+        --gap: 8px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scrollbar-width: thin;
+        scrollbar-color: #c8c8c8 transparent;
+      }
+      body {
+        width: 344px;
+        max-height: 600px;
+        margin: 0;
+        padding: 12px;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        background: var(--bg);
+        color: var(--text);
+        font: 12px/1.45 "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      }
+      body::-webkit-scrollbar {
+        width: 6px;
+      }
+      body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      body::-webkit-scrollbar-thumb {
+        border-radius: 3px;
+        background: var(--divider);
+      }
+      body::-webkit-scrollbar-thumb:hover {
+        background: var(--text-2);
+      }
+      body::-webkit-scrollbar-thumb:active {
+        background: var(--text);
+      }
+      header {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      header img {
+        width: 28px;
+        height: 28px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .sub {
+        margin: 0;
+        color: var(--text-2);
+        font-size: 11px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-card);
+      }
+      .card + .card {
+        margin-top: var(--gap);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 10px;
+      }
+      .label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .title {
+        font-weight: 600;
+      }
+      .desc {
+        color: var(--text-2);
+        font-size: 11px;
+      }
+      .divider {
+        height: 1px;
+        margin: 0 10px;
+        background: var(--divider);
+      }
+      .row.disabled {
+        opacity: 0.45;
+        pointer-events: none;
+      }
+      .switch {
+        position: relative;
+        display: inline-block;
+        flex: none;
+      }
+      .switch input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+      }
+      .track {
+        display: block;
+        position: relative;
+        width: 40px;
+        height: 20px;
+        border: 1px solid var(--switch-border);
+        border-radius: 10px;
+        transition:
+          background-color 120ms ease,
+          border-color 120ms ease;
+      }
+      .knob {
+        position: absolute;
+        top: 3px;
+        left: 4px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--switch-knob);
+        transition:
+          transform 120ms ease,
+          width 120ms ease,
+          height 120ms ease,
+          background-color 120ms ease;
+      }
+      .switch input:checked + .track {
+        border-color: var(--accent);
+        background: var(--accent);
+      }
+      .switch input:checked + .track .knob {
+        top: 2px;
+        left: 3px;
+        width: 14px;
+        height: 14px;
+        background: #ffffff;
+        transform: translateX(20px);
+      }
+      .switch input:focus-visible + .track {
+        outline: 2px solid var(--text);
+        outline-offset: 2px;
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        margin: 0;
+        padding: 8px 10px;
+        border: 0;
+        border-radius: var(--radius-card);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        flex: none;
+      }
+      .head:hover {
+        background: var(--control-hover);
+      }
+      .head:active {
+        background: var(--divider);
+      }
+      .chevron {
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-right: 1.5px solid var(--text);
+        border-bottom: 1.5px solid var(--text);
+        transform: rotate(45deg);
+        transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .expander.open .chevron {
+        transform: rotate(-135deg);
+      }
+      .sep {
+        height: 1px;
+        margin: 0 10px;
+        background: var(--divider);
+        opacity: 0;
+        transition: opacity 150ms ease;
+      }
+      .expander.open .sep {
+        opacity: 1;
+      }
+      .body {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .expander.open .body {
+        grid-template-rows: 1fr;
+      }
+      .body > .clip {
+        overflow: hidden;
+        min-height: 0;
+      }
+      .pad {
+        padding: 4px 10px 10px;
+      }
+      .fields {
+        display: flex;
+        gap: var(--gap);
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 8px;
+      }
+      .field.grow {
+        flex: 1;
+      }
+      .field.narrow {
+        width: 84px;
+      }
+      input[type="text"],
+      input[type="number"] {
+        width: 100%;
+        height: 30px;
+        padding: 5px 8px;
+        border: 1px solid var(--divider);
+        border-bottom-width: 2px;
+        border-radius: var(--radius-control);
+        background: #fbfbfb;
+        color: var(--text);
+        font: inherit;
+      }
+      input[type="text"]:hover,
+      input[type="number"]:hover {
+        background: #ffffff;
+      }
+      input[type="text"]:focus,
+      input[type="number"]:focus {
+        outline: none;
+        border-bottom-color: var(--accent);
+        background: #ffffff;
+      }
+      .actions {
+        display: flex;
+        gap: var(--gap);
+        margin-top: 12px;
+      }
+      .actions button {
+        flex: 1;
+        height: 30px;
+        padding: 0 12px;
+        border: 1px solid var(--divider);
+        border-radius: var(--radius-control);
+        background: var(--control);
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      .actions button:hover {
+        background: var(--control-hover);
+      }
+      .actions button:active {
+        background: var(--control-pressed);
+      }
+      .actions button.accent {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #ffffff;
+      }
+      .actions button.accent:hover {
+        background: var(--accent-hover);
+      }
+      .actions button.accent:active {
+        background: var(--accent-pressed);
+      }
+      #status {
+        margin: 8px 0 0;
+        color: var(--text-2);
+        font-size: 11px;
+      }
+      #status:empty {
+        display: none;
+      }
+      #status.ok {
+        color: var(--ok);
+      }
+      #status.bad {
+        color: var(--bad);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="assets/icons/icon32.png" alt="" />
+      <div>
+        <h1>EasyDownloadManager</h1>
+        <p class="sub" id="target"></p>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <span class="label">
+          <span class="title" data-i18n="popupEnabled"></span>
+          <span class="desc" data-i18n="popupEnabledDesc"></span>
+        </span>
+        <label class="switch">
+          <input type="checkbox" id="enabled" />
+          <span class="track"><span class="knob"></span></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="card expander" id="backend">
+      <button class="head" id="backendHead" type="button" aria-expanded="false" aria-controls="backendBody">
+        <span class="label">
+          <span class="title" data-i18n="popupBackend"></span>
+          <span class="desc" data-i18n="popupBackendDesc"></span>
+        </span>
+        <span class="chevron"></span>
+      </button>
+      <div class="sep"></div>
+      <div class="body" id="backendBody" aria-hidden="true" inert>
+        <div class="clip">
+          <div class="pad">
+            <div class="fields">
+              <div class="field grow">
+                <span class="desc" data-i18n="popupHost"></span>
+                <input type="text" id="host" spellcheck="false" />
+              </div>
+              <div class="field narrow">
+                <span class="desc" data-i18n="popupPort"></span>
+                <input type="number" id="port" min="1" max="65535" />
+              </div>
+            </div>
+            <div class="field">
+              <span class="desc" data-i18n="popupToken"></span>
+              <input type="text" id="token" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="actions">
+              <button id="testConnection" data-i18n="popupTestConnection"></button>
+              <button id="save" class="accent" data-i18n="popupSave"></button>
+            </div>
+            <p id="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card expander" id="features">
+      <button class="head" id="featuresHead" type="button" aria-expanded="false" aria-controls="featuresBody">
+        <span class="label">
+          <span class="title" data-i18n="popupFeatures"></span>
+          <span class="desc" data-i18n="popupFeaturesDesc"></span>
+        </span>
+        <span class="chevron"></span>
+      </button>
+      <div class="sep"></div>
+      <div class="body" id="featuresBody" aria-hidden="true" inert>
+        <div class="clip">
+          <div class="pad">
+            <div class="row" data-feature>
+              <span class="label">
+                <span class="title" data-i18n="popupAutoCapture"></span>
+                <span class="desc" data-i18n="popupAutoCaptureDesc"></span>
+              </span>
+              <label class="switch">
+                <input type="checkbox" id="autoCapture" />
+                <span class="track"><span class="knob"></span></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+            <div class="row" data-feature>
+              <span class="label">
+                <span class="title" data-i18n="popupSniffPanel"></span>
+                <span class="desc" data-i18n="popupSniffPanelDesc"></span>
+              </span>
+              <label class="switch">
+                <input type="checkbox" id="sniffPanel" />
+                <span class="track"><span class="knob"></span></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+            <div class="row" data-feature>
+              <span class="label">
+                <span class="title" data-i18n="popupContextMenu"></span>
+                <span class="desc" data-i18n="popupContextMenuDesc"></span>
+              </span>
+              <label class="switch">
+                <input type="checkbox" id="contextMenu" />
+                <span class="track"><span class="knob"></span></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

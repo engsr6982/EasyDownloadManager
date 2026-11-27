@@ -19,6 +19,9 @@ E2E，test/server 为 Node HTTP 测试服务器。依赖经 vcpkg 清单（curl 
 spdlog、glaze、magic-enum），Qt6 经 `CMAKE_PREFIX_PATH` 提供，quickjs-ng 与 jspp 经
 FetchContent 拉取（跟踪 main 分支，更新需删 `_deps` 重新配置）。
 
+browser/ 为独立的 TypeScript 浏览器扩展（不在 CMake 内），经 Vite 产出 chromium 与 firefox
+两套未打包目录。
+
 ## 构建
 
 Windows，MSVC 2022，CMake + Ninja。工具链参数与 `.vscode/settings.json` 保持一致：
@@ -37,6 +40,17 @@ MSVC 运行时强制 DLL 变体（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`）�
 `WIN32_EXECUTABLE` 为 FALSE 使 qDebug 输出可见；Debug 构建定义 `EDM_DEBUG`；
 `src-downloader` 目标定义 `SPDLOG_FMT_EXTERNAL`、`CURL_STATICLIB`、`NOMINMAX`。
 
+浏览器扩展独立构建，产物在 `browser/dist/<target>`：
+
+```sh
+cd browser && npm install && node build.mjs        # 双目标
+cd browser && npx tsc -p ../tsconfig.json --noEmit # 类型检查
+```
+
+`build.mjs` 为每个目标注入 `resolve.alias['@platform']` 指向 `browser/<target>/adapter.ts`，
+平台差异只在编译期存在。词条源为 `assets/i18n/<localeCode>.json`，构建时转成
+`_locales/<localeCode>/messages.json`；现有 localeCode 为 `en_US` 与 `zh_CN`。
+
 ## 验证
 
 - CLI：`node test/server/server.js` 后运行
@@ -48,6 +62,10 @@ MSVC 运行时强制 DLL 变体（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`）�
   退出码 0 为全部通过。构建：`cmake --build cmake-build-debug-clang-cl --target edm-scripting-smoke --target EasyDownloadManager`
 - GUI：懒加载页启动后不导航则页面 QML 错误不暴露；临时将 `App.qml` viewLoader 默认 source
   切到目标页，跑 GUI 后全量检查日志（不过滤），验后还原
+- 浏览器扩展 E2E：`.tmp/ext-e2e/server.mjs` 起夹具页（3188，请求头日志写 `fixture.log`），
+  `restart-chrome.ps1` 起带调试端口的 Chrome，`load.mjs` 经 CDP 装载 `browser/dist/chromium`，
+  再按 `drive.mjs` 头部注释的步骤序运行（popup 先行写入设置）。原生右键菜单一项由桌面自动化
+  完成：`menu-arm` 记基线，菜单项点击后 `menu-check` 断言任务落库
 - 构建与拉取需网络时用代理 `http://127.0.0.1:7890`
 
 ## 架构
@@ -82,7 +100,7 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
   `getTaskDetail(id)` 惰性创建 `QmlTaskDetail`（实时速率、ETA、错误串、rangesModel 线程状态）。
   任务详情实时数据为拉取式：抽屉可见期的定时器调用 `detail.pullLive()`（内部
   refreshDetailById 从引擎读取，经 updateDetailFromRow 统一推送 setLiveState 与
-  rangesModel），不可见不拉取，不做全局定时推送；行 1s 刷新对已缓存 detail 走同一链路
+  rangesModel），不可见不拉取，不做全局定时推送；行 1s 刷新对已缓存 detail 使用同一更新流程
 - `QmlSettings`：包装 EdmConfig 单例，QML 双向绑定设置项
 - `QmlController`：应用级动作（最小化到托盘、打开文件/文件夹、剪贴板、无边框窗口外观
   `installWindowFrameless`）
@@ -161,7 +179,35 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
 
 报文形态为 `{"id","method","params"}` 请求、`{"id","ok","result"|"error"}` 响应与
 `{"event","data"}` 事件。鉴权为连接后的首条 `auth` 消息，未鉴权会话只能调用 auth，
-10 秒未鉴权即断开；令牌留空表示不校验。令牌轮换断开全部现有会话。
+10 秒未鉴权即断开；令牌留空表示不校验。令牌轮换断开全部现有会话。字段级契约见
+docs/websocket.md。
+
+### 浏览器桥接扩展（browser/）
+
+MV3 扩展，把浏览器发起的下载移交本机引擎。`common/` 承载全部机制，`chromium/` 与 `firefox/`
+只实现 `common/api/types.ts` 的 `PlatformApi` 契约（存储、消息与端口、webRequest 观察、标签页、
+下载、Cookie、右键菜单），构建期由 `@platform` 别名选定实现，运行期无能力探测。
+
+- `capture/pipeline.ts`：观察钩子按 requestId 聚合 Pending，重定向链沿用同一条目；响应头到位
+  即判定，判为下载的移交引擎，可嗅探的送面板；非 GET 请求不可复现，直接丢弃
+- `capture/judge.ts`：下载判定四条件，XHR/fetch 一律不自动接管；条目数据在 `data/tables.ts`
+  的四张扩展名表、FORCE_MIME、URL 黑名单与 MIME 映射表，增删条目不改逻辑
+- `capture/job.ts`：移交参数组装：来源页上下文（含 target=_blank 的 opener 修正，发送前
+  await）、现查下载域 Cookie、透传 x-* 与 Content-Type 请求头
+- `capture/handoff.ts`：移交登记与 TTL，成功送达后撤除对应浏览器下载条目；引擎离线则保留
+  浏览器下载并在页面提示
+- `capture/frames.ts`：经 `runtime.connect` 端口登记各 frame 的文档地址，供 iframe 粒度的
+  Referer 取值
+- `panel/panel.ts`：浮动面板，媒体元素锚点定位、邻近合并、多文件折叠、拖拽与闲置淡出，
+  样式以 `all:revert` 隔离页面 CSS
+- `ws/client.ts`：对接 src/ws 报文契约，连接后首条 auth，令牌由 popup 配置；懒重连，
+  队列非空时断开才提示
+- `settings.ts` 与 `popup/`：`enabled` 为启用扩展总开关；`autoCapture`、`sniffPanel`、
+  `contextMenu` 三个分开关分别控制移交、面板推送与菜单注册。popup 按 src-ui 的 Fluent
+  令牌实现，功能配置与后端配置分列两个默认折叠的 Expander
+
+自动捕获由 `enabled` 与 `autoCapture` 决定是否启用；面板条目点击与右键菜单属显式移交，只由
+`enabled` 决定是否启用。
 
 ## 约定
 
@@ -258,9 +304,19 @@ QML 桥接层（src/qml/，经 `EdmApplication::initialize()` 注册为单例）
     未定义；须用 clang-format off/on 钳住顺序敏感的 include 组。
 24. `QmlRangeModel::update(nullptr)` 行数取占位线程数而引擎槽位指针为空，循环解引用崩溃；
     无实时状态必须短路返回。`QmlTaskDetail::setLiveState` 曾无调用点（抽屉速率/ETA/线程行
-    全为死数据），实时推送统一收口在 `updateDetailFromRow`。
+    全为死数据），实时推送统一在 `updateDetailFromRow` 更新。
 25. `TaskLoggerManager::init` 不调用时日志目录退化为 CWD 相对 `logs/`，写进进程启动目录且
     随工作目录漂移；应用入口（EdmApplication）与测试入口必须显式传入绝对或仓库内 `.tmp` 路径。
+26. 新版品牌 Chrome 忽略 `--load-extension`，扩展不加载且无提示；经 browser 级 CDP
+    `Extensions.loadUnpacked` 装载，路径必须用正斜杠。
+27. Chrome 缓存未打包扩展的 service worker 脚本，重建 `browser/dist` 后增量重启仍跑旧代码
+    （压缩后偏移量一致可作判据）；换 profile 目录或真实重载才生效。
+28. MV3 worker 空闲即终止，CDP 列不到 target：先开一个测试页让内容脚本连端口把它唤醒，
+    刚唤醒时扩展 API 绑定可能未就绪，attach 后需探测重试。
+29. 移交后的浏览器下载条目被 cancel 加 erase，`downloads.search` 不再返回它们，断言"已取消"
+    只能用移交前后的 id 集合差；对 in_progress 条目调 `removeFile` 报 "Download must be complete"。
+30. 面板条目要求媒体或字幕扩展名且体积超过 `MIN_SNIFF_BYTES`，夹具用 `.bin` 不会进面板；
+    单条目分组无可点列表行，标题按钮本身即移交入口。
 
 ## 未决项
 

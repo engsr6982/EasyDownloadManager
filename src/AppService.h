@@ -5,7 +5,11 @@
 #include <QObject>
 #include <QString>
 
+#include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace edm {
 
@@ -13,6 +17,20 @@ class Dispatcher;
 class DownloadDatabase;
 struct TaskModel;
 struct TaskContext;
+
+/// 浏览器集成创建任务时携带的页面/请求上下文，缺省字段沿用全局设置。
+/// 仅 WS createTask 路径使用；QML 建任务不传，走原三参重载。
+struct BrowserMeta {
+    std::string                        referer;
+    std::string                        origin;
+    std::string                        cookie;
+    std::string                        fileName;
+    std::string                        mimeType;
+    std::string                        pageUrl;
+    std::string                        pageTitle;
+    std::int64_t                       size{-1};
+    std::map<std::string, std::string> headers;
+};
 
 namespace script {
 class ScriptingBootstrap;
@@ -74,7 +92,8 @@ public:
     // 失败通过 taskError / taskActionError 异步回传。
     /// 从配置构造 TaskModel、落库取有效 id、转 TaskContext。返回 model 并同步发出
     /// taskCreated；实际派发放到后台线程（元信息探测是网络请求），避免卡住 UI 线程。
-    Expected<std::shared_ptr<TaskModel>> createTask(QString const& url, QString const& saveDir, bool useProxy);
+    Expected<std::shared_ptr<TaskModel>>
+    createTask(QString const& url, QString const& saveDir, bool useProxy, std::optional<BrowserMeta> const& meta = {});
 
     Expected<> pauseTask(int taskId);
     Expected<> resumeTask(int taskId);

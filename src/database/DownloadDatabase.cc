@@ -4,6 +4,8 @@
 #include "TaskModel.h"
 
 #include <random>
+#include <set>
+#include <string>
 
 namespace edm {
 
@@ -42,25 +44,20 @@ void DownloadDatabase::initTables() const {
                     mimeType TEXT NOT NULL,
                     errorMsg TEXT NOT NULL,
                     saveDir TEXT NOT NULL,
-                    customHeaders TEXT NOT NULL DEFAULT '', -- 脚本注入的自定义请求头 (JSON)
-                    useProxy INTEGER NOT NULL DEFAULT 0  -- 是否使用代理
+                    customHeaders TEXT NOT NULL DEFAULT '', -- 自定义请求头 (JSON)
+                    useProxy INTEGER NOT NULL DEFAULT 0     -- 是否使用代理
                 );
             )"
         );
         query.exec();
     }
 
-    // 旧库迁移：downloads 表缺少 customHeaders 列时补齐
+    // 旧库迁移：downloads 表缺少列时逐列补齐
     {
-        bool              hasCustomHeaders{false};
-        SQLite::Statement pragma(*db_, "PRAGMA table_info(downloads)");
-        while (pragma.executeStep()) {
-            if (pragma.getColumn(1).getString() == "customHeaders") {
-                hasCustomHeaders = true;
-                break;
-            }
-        }
-        if (!hasCustomHeaders) {
+        std::set<std::string> have;
+        SQLite::Statement     pragma(*db_, "PRAGMA table_info(downloads)");
+        while (pragma.executeStep()) have.insert(pragma.getColumn(1).getString());
+        if (!have.count("customHeaders")) {
             db_->exec("ALTER TABLE downloads ADD COLUMN customHeaders TEXT NOT NULL DEFAULT ''");
         }
     }

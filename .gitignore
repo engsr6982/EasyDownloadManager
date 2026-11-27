@@ -103,3 +103,7 @@ cmake-build-*/
 
 # vcpkg 项目内缓存（binary cache / downloads）
 .vcpkg-cache/
+
+# 浏览器扩展构建产物
+browser/dist/
+browser/node_modules/

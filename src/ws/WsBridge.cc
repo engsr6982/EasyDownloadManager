@@ -125,7 +125,25 @@ struct WsBridge::Impl {
         auto const saveDir  = req.saveDir.value_or(config.getSaveDir().toStdString());
         auto const useProxy = req.useProxy.value_or(config.getProxyEnabled());
 
-        auto created = service->createTask(QString::fromStdString(req.url), QString::fromStdString(saveDir), useProxy);
+        // 任一接力字段出现即视为浏览器集成建单，否则维持纯 URL 行为
+        std::optional<BrowserMeta> meta;
+        if (req.referer || req.origin || req.cookie || req.fileName || req.mimeType || req.pageUrl || req.pageTitle
+            || req.size || req.headers) {
+            BrowserMeta bm;
+            bm.referer   = req.referer.value_or("");
+            bm.origin    = req.origin.value_or("");
+            bm.cookie    = req.cookie.value_or("");
+            bm.fileName  = req.fileName.value_or("");
+            bm.mimeType  = req.mimeType.value_or("");
+            bm.pageUrl   = req.pageUrl.value_or("");
+            bm.pageTitle = req.pageTitle.value_or("");
+            bm.size      = req.size.value_or(-1);
+            if (req.headers) bm.headers = *req.headers;
+            meta = std::move(bm);
+        }
+
+        auto created =
+            service->createTask(QString::fromStdString(req.url), QString::fromStdString(saveDir), useProxy, meta);
         if (!created) return makeStringError(created.error().message());
         return CreateTaskPacket::Result{(*created)->id};
     }

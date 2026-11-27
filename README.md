@@ -13,6 +13,9 @@
 完成等通知事件。命令面板（Ctrl+Shift+P）聚合应用操作与脚本命令。
 插件中心提供启用、禁用、重载、卸载与虚拟控制台实时日志。
 
+浏览器集成：装载 `browser/` 下的扩展后，页面里的下载可以直接交给本引擎，扩展弹窗提供
+总开关与各项功能的开关。设置页显示监听地址与配对令牌。
+
 ## 构建
 
 Windows 环境，Qt 6.8（MSVC 2022）、CMake、Ninja，依赖经 vcpkg 与 FetchContent 解析
@@ -23,8 +26,16 @@ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cm
 cmake --build build
 ```
 
+浏览器扩展为独立的 TypeScript 工程，产出 Chromium 与 Firefox 两套未打包目录，
+在浏览器扩展管理页以开发者模式装载：
+
+```sh
+cd browser && npm install && node build.mjs
+```
+
 ## 文档
 
 - [脚本扩展开发](docs/scripting.md)
 - [脚本 API 类型声明](docs/edm.d.ts)
+- [浏览器桥接协议](docs/websocket.md)
 - [Agent 与维护者指引](AGENTS.md)
