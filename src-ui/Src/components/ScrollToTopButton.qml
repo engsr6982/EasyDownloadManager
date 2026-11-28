@@ -70,7 +70,11 @@ FluIconButton {
 
     onClicked: {
         flickable.cancelFlick();
-        scrollAnimation.restart();
+        if (typeof flickable.scrollToTop === "function") {
+            flickable.scrollToTop();
+        } else {
+            scrollAnimation.restart();
+        }
     }
 
     NumberAnimation {

@@ -115,15 +115,14 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ListView {
+            DesktopListView {
                 id: cardList
                 anchors.fill: parent
                 clip: true
                 model: ScriptManager
                 spacing: Constants.itemSpacing
                 cacheBuffer: 240
-                boundsBehavior: Flickable.StopAtBounds
-                // 不放可见滚动条：overlay 会遮挡卡片右缘；滚轮与惯性滚动不受影响
+                // 不放可见滚动条：overlay 会遮挡卡片右缘
 
                 delegate: ExtensionCard {
                     width: cardList.width

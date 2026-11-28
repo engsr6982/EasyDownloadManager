@@ -141,7 +141,7 @@ Item {
             Layout.fillHeight: true
             Layout.fillWidth: true
 
-            ListView {
+            DesktopListView {
                 id: taskListView
                 anchors.fill: parent
                 spacing: Constants.itemSpacing
